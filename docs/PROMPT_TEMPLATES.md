@@ -299,6 +299,62 @@ Script selectable in the presenter overlay; steps run start-to-finish in the Sim
 
 ---
 
+## Template 8 — Promote a sub-app to a standalone binary
+
+Use only when a demo's point is a genuine iOS app-to-app handoff (a real springboard
+switch). This adds a second host for an existing sub-app; it does NOT modify the module,
+and the shell stays the default host.
+
+```text
+GOAL
+Add a standalone app target that ships Fake〈Name〉App as its own binary, reusing the
+existing module unchanged, so it can participate in real iOS URL-scheme cross-linking.
+
+WHY (confirm this is warranted)
+- The demo needs a real app-switch (e.g. "tap a link in Fake Mail → Fake Chase launches"),
+  NOT in-shell navigation. If in-shell is acceptable, use Template 6 instead — it's simpler
+  and keeps the presenter layer.
+
+MECHANISM (required)
+- New app target Fake〈Name〉Standalone with a ~5-line @main that calls the SAME
+  Fake〈Name〉Module().makeRootView(deepLink:) and injects its Theme. Do NOT fork or copy
+  the module.
+- Register CFBundleURLTypes → 〈fakename〉 in the standalone target's Info.plist. To open
+  OTHER fake apps from it, add their schemes under LSApplicationQueriesSchemes.
+- Cross-app opens use the SAME DemoRoute: UIApplication.open(route.url). Parse the inbound
+  URL back into a DemoRoute via DemoRoute(_:) and pass it as the deepLink.
+
+ACCEPTANCE CRITERIA (Given / When / Then)
+- Given the standalone target, when built and installed on the Simulator, then it launches
+  straight into Fake〈Name〉App in its theme (light + dark).
+- Given another installed app calls open(〈fakename〉://〈path〉), when invoked, then iOS
+  switches to this binary and it deep-links to 〈that screen〉.
+- Given the module source, when compared, then it is byte-for-byte the same code the shell
+  hosts (no fork, no #if per-host branching in screens).
+- Given the shell build, when run, then Fake〈Name〉App still works in-process exactly as
+  before (this change is additive).
+
+NON-GOALS / TRADE-OFFS TO STATE BACK TO ME
+- The presenter control layer, shared live state, live theme switch, and seamless
+  transitions do NOT cross the process boundary. Confirm you understand the standalone
+  binary loses these, and that the shell remains the primary host.
+
+GUARDRAILS
+- Additive only: no changes to the module, to Core, or to the shell's hosting of it.
+- Same DemoRoute addressing for both hosts — introduce no parallel routing scheme.
+
+BEFORE YOU CODE
+Restate the plan: the new target, the @main wrapper, the Info.plist scheme(s), and the
+inbound-URL → DemoRoute → deepLink path. Confirm the trade-offs above. Wait for approval.
+
+DEFINITION OF DONE
+Standalone binary builds/installs/launches in the Simulator; inbound 〈fakename〉:// deep
+links resolve to the right screen; the shell still hosts the same module in-process
+unchanged. Give verification steps for both hosts.
+```
+
+---
+
 ## Worked example (Template 1 filled in)
 
 A reference for the level of specificity that gets a good result:
