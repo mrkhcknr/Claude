@@ -29,7 +29,10 @@ prototyping. Read **[ARCHITECTURE.md](ARCHITECTURE.md)** and
    one `Theme`, with **no component changes**.
 5. **Navigation is declarative data.** Every screen is addressable as a serializable
    `DemoRoute`. This is what powers cross-links, the presenter palette, scripted demos,
-   and deep links.
+   and deep links. A `DemoRoute` doubles as a real iOS URL scheme (`fakechase://…`), so the
+   same address serves in-shell navigation and — if a sub-app is ever shipped as its own
+   binary — real cross-app deep links. **Default host is the shell (in-process);** in-shell
+   cross-linking is plain SwiftUI navigation, not a springboard app-switch.
 6. **Services are mock-first behind protocols.** UI depends on the protocol; `Mock*`
    implementations use `ScenarioKit` fixtures today, `Live*` implementations arrive later
    with zero UI changes.

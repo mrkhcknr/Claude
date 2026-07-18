@@ -251,6 +251,47 @@ The shell hosts a single `SystemUIPresenting` implementation and injects it via
 `playLaunch` is invoked by the shell when entering a sub-app, using the manifest's icon +
 theme to animate the "app opening" transition.
 
+### 2.8 Optional — ship a sub-app as its own binary (standalone wrapper)
+
+The default host is the shell (in-process). But because a sub-app is a *library*, any of
+them can *also* run as its own app for demos that want a real iOS app-switch — with no
+change to the module itself. The wrapper is a few lines that reuse the **same**
+`makeRootView`, plus a scheme registration.
+
+```swift
+// FakeChaseStandalone/App.swift — a separate app target, ~5 lines.
+@main
+struct FakeChaseStandaloneApp: App {
+    var body: some Scene {
+        WindowGroup {
+            FakeChaseModule()                       // the SAME module the shell hosts
+                .makeRootView(deepLink: nil)
+                .environment(\.theme, ChaseTheme())
+        }
+    }
+}
+```
+
+```xml
+<!-- Info.plist — register the scheme so other installed apps can deep-link in. -->
+<key>CFBundleURLTypes</key>
+<array><dict>
+  <key>CFBundleURLSchemes</key><array><string>fakechase</string></array>
+</dict></array>
+<!-- To query/open OTHER fake apps, also add their schemes under LSApplicationQueriesSchemes. -->
+```
+
+```swift
+// Real cross-app open uses the SAME DemoRoute string — no new addressing scheme:
+//   UIApplication.shared.open(DemoRoute(app: "fakechase", path: ["accounts","transfer"]).url)
+```
+
+**Recommendation:** keep this off by default. Use it only for a demo whose point is
+authentic app-to-app handoff — you trade the presenter control layer (shared state, global
+palette, live theme switch, seamless transitions) for a real springboard switch. For
+external deep links *without* that trade-off, register the schemes on the **shell** instead
+and let it route in-process.
+
 ---
 
 ## 3. Phased build order

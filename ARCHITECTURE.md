@@ -360,7 +360,69 @@ graph TD
 
 ---
 
-## 11. Simulator compatibility
+## 11. Hosting models & cross-linking
+
+The question this app was built to answer: *can you cross-link between separate demo apps
+on iOS?* You can — but the shell makes it a non-issue, and the architecture supports both
+models with **no rework**.
+
+### iOS can do real cross-app linking (both work in the Simulator)
+
+- **Custom URL schemes** — a target app registers e.g. `fakechase://` in its `Info.plist`
+  (`CFBundleURLTypes`); another app calls `UIApplication.open(…)`. Querying whether it's
+  installed needs `LSApplicationQueriesSchemes`.
+- **Universal Links** — `https://` links + an associated-domains entitlement + a hosted
+  `apple-app-site-association` file. More infrastructure; usually overkill for fake apps.
+
+Both are a **full springboard app-switch across separate processes** — the source app
+backgrounds, the target cold-launches, and there is **no shared memory** (only App Groups)
+and no way to embed one app's UI inside another.
+
+### In-shell (default) vs standalone binaries
+
+| | **Shell hosts sub-apps** (default) | **Separate binaries + URL schemes** |
+|---|---|---|
+| Cross-link | In-process SwiftUI navigation — always works | Real, but a full app-switch |
+| Transition | Seamless, presenter-controlled | Authentic iOS app-switch (sometimes desirable) |
+| Shared live state | One store, one Router | None — App Groups / URL params only |
+| **Presenter layer** | ✅ global palette, scripted demos, live theme switch | ❌ an overlay lives in one app's window; can't drive another process |
+| Demo setup | One install | Install & manage N binaries, each cold-starts |
+| Code reuse | Shared SPM Core packages | **Also shared** — same packages, statically linked |
+
+**Decisive factor:** the presenter control layer needs one process + shared state + one
+router, so it can't span separate binaries. For presenter-driven prototyping, the shell
+wins clearly. Reach for separate binaries only when the *point* of a demo is genuine
+app-to-app handoff realism.
+
+### The design already supports both
+
+A sub-app is a **library, not an app**, so it can be hosted two ways with no rework:
+
+```mermaid
+graph TD
+    Module["Fake〈X〉App module\n(DemoModule + makeRootView + DemoRoute scheme)"]
+    Shell["Hosted in-process by ShellApp\n(default — presenter, seamless cross-links)"]
+    Standalone["Wrapped in a thin @main app target\n(own binary — real URL-scheme cross-linking)"]
+    Module --> Shell
+    Module --> Standalone
+```
+
+Two earlier decisions make this free:
+
+- **`DemoRoute` *is* a URL.** `fakechase://accounts/checking/transfer` is already a valid
+  custom-scheme deep link — the same route model drives in-shell navigation **and** real
+  cross-app opens (`UIApplication.open(route.url)`).
+- **Sub-apps are SPM packages on Core.** A standalone binary reuses the exact same Core +
+  component library by depending on the same packages.
+
+**Bonus — external deep links without giving up seamlessness:** let the **shell** register
+the schemes. Then a link from Safari, a QR code, or Notes opens the *shell* and routes
+in-process to the right sub-app screen — external linking works while internal cross-links
+stay smooth.
+
+---
+
+## 12. Simulator compatibility
 
 Everything runs in the iOS Simulator; it's the primary target. Caveats are minor:
 
@@ -376,7 +438,7 @@ against the theme system.
 
 ---
 
-## 12. Layer summary
+## 13. Layer summary
 
 ```mermaid
 graph TD
