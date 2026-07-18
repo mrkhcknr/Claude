@@ -23,7 +23,7 @@ prototyping. Read **[ARCHITECTURE.md](ARCHITECTURE.md)** and
 2. **Sub-apps never import other sub-apps.** Cross-app navigation goes through the
    `RootRouter` by `DemoRoute` identity — never a direct type reference.
 3. **Sub-apps depend only on Core** (`DemoKit`, `Navigation`, `DesignSystem`,
-   `PrototypeKit`, `CoreServices`, `ScenarioKit`).
+   `PrototypeKit`, `SystemChrome`, `CoreServices`, `ScenarioKit`).
 4. **Components are theme-driven.** No hardcoded colors or fonts in `DesignSystem`
    components — read semantic tokens from `@Environment(\.theme)`. Adding a brand = adding
    one `Theme`, with **no component changes**.
@@ -37,6 +37,11 @@ prototyping. Read **[ARCHITECTURE.md](ARCHITECTURE.md)** and
    presenter palette from the registry — adding a sub-app must **not** edit shell code.
 8. **PresenterKit stays outside the sub-apps.** It drives them via the Router and shared
    state only; it imports no sub-app.
+9. **SystemChrome is Apple-styled and always fake.** Fake iOS system surfaces (Face ID,
+   Apple Pay/IAP, alerts, permission prompts, launch animations) render with system
+   semantics regardless of the sub-app's brand theme. They are non-functional simulations:
+   **never** wire them to real `LocalAuthentication`, `StoreKit`, or any backend that
+   collects credentials, biometrics, or payment.
 
 ## Conventions
 

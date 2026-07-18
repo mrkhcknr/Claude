@@ -22,7 +22,8 @@ ShellDemoApp/
 │  ├─ DemoKit/                     # DemoModule, DemoRegistry, Manifest
 │  ├─ Navigation/                  # DemoRoute, Router (two-tier), route registry
 │  ├─ DesignSystem/                # Tokens, Theme protocol + themes, components, MediaUI
-│  ├─ PrototypeKit/                # fake flows, simulated states, haptics
+│  ├─ PrototypeKit/                # fake app-level flows, simulated states, haptics
+│  ├─ SystemChrome/                # fake iOS system surfaces (Face ID, Apple Pay/IAP, alerts, launch)
 │  ├─ CoreServices/                # service protocols + mock implementations
 │  ├─ ScenarioKit/                 # named personas / fixture seeding
 │  ├─ PresenterKit/                # presenter overlay (command palette, scripts, controls)
@@ -47,8 +48,9 @@ ShellDemoApp/
 | `CoreServices` | — (leaf) |
 | `ScenarioKit` | `CoreServices` |
 | `PrototypeKit` | `DesignSystem` |
+| `SystemChrome` | `DesignSystem` |
 | `PresenterKit` | `Navigation`, `DemoKit`, `DesignSystem`, `ScenarioKit` |
-| `Fake*App` | `DemoKit`, `Navigation`, `DesignSystem`, `PrototypeKit`, `CoreServices`, `ScenarioKit` |
+| `Fake*App` | `DemoKit`, `Navigation`, `DesignSystem`, `PrototypeKit`, `SystemChrome`, `CoreServices`, `ScenarioKit` |
 | `ComponentGallery` | `DesignSystem` |
 | **`Fake*App` → another `Fake*App`** | ❌ **never** |
 
@@ -216,6 +218,39 @@ public struct DemoScript: Codable, Sendable, Identifiable {
 // The overlay drives RootRouter.navigate(to:) + ScenarioKit + theme env for each step.
 ```
 
+### 2.7 System surfaces — fake iOS chrome (SystemChrome)
+
+```swift
+/// Fake iOS *system* surfaces, presented above the app by the shell. Any sub-app can
+/// await a simulated result. ALWAYS Apple-styled (system semantics), even inside a
+/// brand-themed app — because on a real device the system UI ignores the app's brand.
+///
+/// GUARDRAIL: non-functional simulations only. Never wire to real LocalAuthentication,
+/// StoreKit, or any backend that collects credentials, biometrics, or payment.
+@MainActor
+public protocol SystemUIPresenting: Sendable {
+    func authenticate(reason: String) async -> BiometricResult          // Face ID / Touch ID
+    func requestPurchase(_ product: FakeProduct) async -> PurchaseResult // Apple Pay / IAP sheet
+    func confirm(_ alert: SystemAlert) async -> AlertResponse            // alert / action sheet
+    func requestPermission(_ kind: SystemPermission) async -> Bool       // notifications, ATT, camera…
+    func banner(_ banner: SystemBanner)                                  // fire-and-forget notification banner
+    func playLaunch(_ manifest: DemoManifest) async                      // splash + icon-zoom open animation
+}
+
+public enum BiometricResult: Sendable { case success, failed, fallbackToPasscode, unavailable }
+public enum PurchaseResult: Sendable { case purchased, cancelled, declined }
+public enum SystemPermission: Sendable { case notifications, appTracking, camera, location, contacts, photos }
+
+// Usage inside a sub-app — reads like the real thing, but the result is faked:
+//   let result = await system.authenticate(reason: "Confirm transfer")
+//   guard result == .success else { return }
+```
+
+The shell hosts a single `SystemUIPresenting` implementation and injects it via
+`@Environment`; the overlay renders at the top window level, above the active sub-app.
+`playLaunch` is invoked by the shell when entering a sub-app, using the manifest's icon +
+theme to animate the "app opening" transition.
+
 ---
 
 ## 3. Phased build order
@@ -232,9 +267,10 @@ Each phase ends with something runnable in the Simulator.
 | **5 — MediaUI** | `DesignSystem.MediaUI` (`ContentShelf`, `ArtworkCard`, `HeroBanner`, `NowPlayingBar`); `FakeMusicApp` (`TabView` + persistent mini-player) + `FakeTVApp` | Shared media components across two sub-apps |
 | **6 — Cross-linking** | Wire cross-app navigation (e.g. Fake TV track → Fake Music player) via `RootRouter` | Launch X from Y with no import |
 | **7 — Services & scenarios** | `CoreServices` protocols + mocks; `ScenarioKit` personas | Mock-first seam; swap personas live |
-| **8 — More brands** | `FakeGoogleApp`, `FakeDisneyApp`, `ComponentGallery` | Unlimited themes, one library |
-| **9 — Presenter layer** | `PresenterKit` overlay: command palette, scripted runs, theme/scenario/reset; multi-trigger invocation | Drive everything from outside the sub-apps |
-| **10 — PrototypeKit polish** | Fake auth flows, simulated loading, canned transitions, haptics | Experiences *feel* real |
+| **8 — System fidelity** | `SystemChrome`: Face ID overlay, Apple Pay/IAP sheet, system alerts & permission prompts, launch animation; wire `await` calls into a sub-app (e.g. Fake Chase transfer → Face ID) | Prototypes feel like real installed apps |
+| **9 — More brands** | `FakeGoogleApp`, `FakeDisneyApp`, `ComponentGallery` | Unlimited themes, one library |
+| **10 — Presenter layer** | `PresenterKit` overlay: command palette, scripted runs, theme/scenario/reset; multi-trigger invocation | Drive everything from outside the sub-apps |
+| **11 — PrototypeKit polish** | Fake app-level flows, simulated loading, canned transitions, haptics | Experiences *feel* real |
 
 **Why this order:** Foundations and the registry come first because everything depends on
 them. Fake Settings is the simplest sub-app, so it validates the end-to-end path cheaply.

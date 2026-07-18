@@ -56,6 +56,7 @@ graph TD
         Nav["Navigation / Router\n(serializable DemoRoute, two-tier routing)"]
         DS["DesignSystem\n(tokens + Theme protocol + components + MediaUI)"]
         Proto["PrototypeKit\n(fake flows, simulated states, haptics)"]
+        SysChrome["SystemChrome\n(fake Face ID, Apple Pay/IAP, system alerts, launch anims)"]
         Services["CoreServices\n(mock-first, protocol-based)"]
         Scenario["ScenarioKit\n(mock personas / state seeding)"]
     end
@@ -108,7 +109,8 @@ graph TD
 | **DemoKit** | Core lib | The `DemoModule` contract, the `DemoRegistry`, and per-sub-app `Manifest` (name, icon, theme, routes, scenarios). |
 | **Navigation** | Core lib | Serializable `DemoRoute` model + two-tier `Router` (shell↔sub-app and screen↔screen). Deep links + cross-links. |
 | **DesignSystem** | Core lib | Semantic **tokens**, the `Theme` protocol + concrete themes, native-composed **components**, and the shared **MediaUI** cluster. |
-| **PrototypeKit** | Core lib | Interactive illusion: fake auth flows, simulated loading, canned transitions, haptics — no real logic. |
+| **PrototypeKit** | Core lib | Interactive illusion at the *app* level: fake auth flows, simulated loading, canned transitions, haptics — no real logic. |
+| **SystemChrome** | Core lib | Fake reproductions of *iOS system* surfaces (Face ID, Apple Pay/IAP, alerts, permission prompts, launch animations). Always Apple-styled; simulated results only. |
 | **CoreServices** | Core lib | Data behind **protocols** with mock/fixture implementations today, real implementations later. |
 | **ScenarioKit** | Core lib | Named mock personas / fixture sets that seed the whole app into a known state. |
 | **PresenterKit** | Shell chrome | Presenter overlay: command palette, scripted runs, theme/scenario/reset controls. Drives Router + state from outside the sub-apps. |
@@ -282,7 +284,50 @@ fixtures the mock returns ("account healthy" vs "overdrawn", "new user" vs "powe
 
 ---
 
-## 9. Presenter Control Layer
+## 9. System-level fidelity — SystemChrome
+
+Fake reproductions of the surfaces **iOS itself owns** — presented *above* the app UI to
+sell the illusion that these are real installed apps. This is separate from `PrototypeKit`
+(which fakes *app-level* flows); `SystemChrome` fakes the *system*.
+
+| Surface | What it mimics |
+|---------|----------------|
+| **Biometric auth** | Face ID / Touch ID scanning overlay → success / fail / fallback-to-passcode |
+| **Payment** | Apple Pay sheet, In-App Purchase confirmation ("double-click to confirm" side-button hint) |
+| **System dialogs** | Alerts, action sheets, permission prompts (notifications, App Tracking Transparency, camera, location, contacts) |
+| **Banners & warnings** | Notification banners, system toasts, error/warning states |
+| **App lifecycle** | Launch splash + icon-zoom open animation, close/backgrounding transitions |
+
+**Two rules that keep it faithful:**
+
+1. **System chrome is always Apple-styled — even inside a brand app.** On a real iPhone the
+   Face ID sheet looks identical in Chase or Disney, so `SystemChrome` **ignores the
+   sub-app's brand theme** and renders with system semantics. (In-app UI is brand-themed;
+   system UI is not — this contrast is what reads as authentic.)
+2. **Presented via a shell-hosted `SystemUIPresenting` service** any sub-app can `await`:
+
+```mermaid
+sequenceDiagram
+    participant App as FakeChaseApp (Transfer screen)
+    participant Sys as SystemUIPresenting (shell-hosted)
+    participant UI as SystemChrome overlay (Apple-styled)
+
+    App->>Sys: await authenticate(reason: "Confirm transfer")
+    Sys->>UI: present Face ID overlay + scan animation
+    UI-->>Sys: simulated .success (canned)
+    Sys-->>App: BiometricResult.success
+    App->>App: proceed to confirmation
+    Note over App,UI: No real LocalAuthentication — result is faked
+```
+
+> **Guardrail (do not violate):** these are **non-functional visual simulations for
+> prototyping only.** They never collect real credentials, biometrics, or payment, and are
+> never wired to real `LocalAuthentication`, `StoreKit`, or any backend. Keeping them fake
+> is what keeps the prototype legitimate.
+
+---
+
+## 10. Presenter Control Layer
 
 Shell-level chrome the **presenter** drives — invisible to the audience until summoned,
 and completely outside the fake apps.
@@ -315,7 +360,7 @@ graph TD
 
 ---
 
-## 10. Simulator compatibility
+## 11. Simulator compatibility
 
 Everything runs in the iOS Simulator; it's the primary target. Caveats are minor:
 
@@ -331,14 +376,14 @@ against the theme system.
 
 ---
 
-## 11. Layer summary
+## 12. Layer summary
 
 ```mermaid
 graph TD
     L1["ShellApp — thin host + catalog"]
     L2["PresenterKit — out-of-band demo control"]
     L3["Sub-apps — self-registering fake experiences"]
-    L4["Core — DemoKit · Navigation · DesignSystem · PrototypeKit · CoreServices · ScenarioKit"]
+    L4["Core — DemoKit · Navigation · DesignSystem · PrototypeKit · SystemChrome · CoreServices · ScenarioKit"]
     L1 --> L2 --> L3 --> L4
 ```
 
