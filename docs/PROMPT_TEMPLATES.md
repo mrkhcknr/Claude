@@ -452,6 +452,97 @@ routes resolve. Give verification steps.
 
 ---
 
+## Template 10 — Build a fake app from a Figma / design file
+
+Like Template 9, but the source is a **design file with exact values**, so nothing is
+estimated. The read-back becomes a **token reconciliation**: map the design system's named
+styles onto this repo's `Theme` token roles 1:1, and flag any design token that has no home
+in our set (a decision: extend the token set vs. a one-off).
+
+### Providing the design (Claude can't open Figma directly — give it the specs)
+
+Provide as much of the following as you can; more precision → higher fidelity:
+
+- **Frames** — exported PNGs of each screen + each variant/state, labeled and in flow order.
+- **Tokens / styles** — the exact definitions: color styles (hex + light/dark), text styles
+  (family, size, weight, line-height, tracking), effect styles, spacing/grid, corner radii.
+  Paste them, export a **design-tokens JSON**, or paste **Dev Mode** inspect values.
+- **Component specs** — component + variant names and their properties (the design system's
+  building blocks).
+- **Prototype links / interactions** — which frame connects to which, and the transitions.
+- **Assets** — exported icons/marks (or the SF Symbol equivalents to substitute).
+- *If a Figma MCP connector is configured in your session,* say so and Claude can pull specs
+  directly instead of from pastes.
+
+```text
+GOAL
+Build a fake app, Fake〈Name〉App, that implements the attached design (〈file / frames /
+tokens〉) onto this repo's architecture — using the design's EXACT tokens and specs.
+
+REFERENCE MATERIAL
+- Attached: 〈labeled frames in flow order〉 + 〈token/style definitions or Dev Mode specs〉 +
+  〈component/variant list〉 + 〈prototype flow〉 + 〈exported assets〉.
+- Source / brand: 〈name〉.
+- Precision expectation: this is a design implementation — honor the specified tokens,
+  spacing, and type EXACTLY (not estimates). Still build with native SwiftUI + HIG; where
+  the design contradicts native behavior/HIG, flag it and recommend (Step 1h).
+
+STEP 1 — SPEC READ-BACK (do this and STOP for my confirmation before any code)
+Report back, from the design:
+  a) FRAME / SCREEN INVENTORY — each frame, label, purpose, and the prototype flow order.
+  b) NAVIGATION STRUCTURE — root container and how frames connect.
+  c) COMPONENT & VARIANT MAPPING — each design component/variant → a DesignSystem component
+     (reuse) or a new one (Template 3), with the exact spec (size, padding, radius, states).
+  d) TOKEN MAPPING (the important part) — a 1:1 table:
+        design style/token  →  our Theme token role  →  value (light / dark)
+     Cover color, typography, radius, spacing, effects. Then list any design token with NO
+     home in our token roles, and recommend: extend the token set, or treat as a one-off.
+     Confirm whether this is AppleTheme or a NEW brand theme (if new, do Template 4 with
+     these exact values).
+  e) SYSTEM SURFACES in the design (Face ID, payment/IAP, permissions, launch) → SystemChrome.
+  f) STATES / VARIANTS — loading / empty / error / success / disabled, per component.
+  g) DATA MODEL implied → a *Servicing protocol + mock + ScenarioKit personas.
+  h) MISMATCHES, GAPS & ASSUMPTIONS — where the design diverges from HIG/native (recommend
+     a resolution), tokens/screens referenced but not provided, and anything ambiguous.
+Wait for my corrections before proceeding.
+
+STEP 2 — BUILD (after I confirm Step 1)
+Implement Fake〈Name〉App per the confirmed read-back, following Template 1's structure:
+own SPM package, DemoManifest, root nav + LocalRouter, DesignSystem components, the theme
+built from the exact tokens, mock service + personas, and entryRoutes.
+
+USER STORY
+As a 〈demo presenter〉, I want the 〈Name〉 flow exactly as designed so that 〈what it proves〉.
+
+NON-GOALS
+- No real functionality, network, auth, or payment. No proprietary photo/audio/video —
+  placeholder assets stand in for brand content.
+
+ACCEPTANCE CRITERIA (Given / When / Then)
+- Given the design tokens, when the theme is built, then every component reads the mapped
+  token roles — the accent, type, radius, and spacing match the design's values, no
+  hardcoding, in light and dark.
+- Given each frame, when built, then it matches the design at component fidelity, including
+  the specified states/variants.
+- Given the prototype flow, when I follow it, then navigation matches the frame connections.
+- Given any designed system surface, when triggered, then the SystemChrome equivalent
+  appears (fake, Apple-styled).
+
+GUARDRAILS
+- Depend only on Core; no sub-app imports. Theme-driven styling only — the design's tokens
+  live in a Theme, never hardcoded in components. Native SwiftUI + HIG. SystemChrome fake.
+
+BEFORE YOU CODE
+Complete Step 1 (especially the token mapping table) and wait for my confirmation.
+
+DEFINITION OF DONE
+Builds/runs in Simulator; self-registers; theme reproduces the design tokens in light +
+dark; frames match at component fidelity with their states; flow navigates per the
+prototype; entry routes resolve. Give verification steps.
+```
+
+---
+
 ## Worked example (Template 1 filled in)
 
 A reference for the level of specificity that gets a good result:
