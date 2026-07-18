@@ -355,6 +355,103 @@ unchanged. Give verification steps for both hosts.
 
 ---
 
+## Template 9 — Build a fake app from screenshots / a screen recording
+
+Give Claude visual reference (screenshots, or key frames from a screen recording) of a
+real app and have it reverse-engineer a fake version onto this architecture. The critical
+move is the **vision read-back**: Claude must inventory what it sees and get your
+corrections *before* building, because a misread screen is cheap to fix in words and
+expensive to fix in code.
+
+### Preparing the reference (do this first — better input, better output)
+
+- **Cover every screen** you want, plus important **states** if the source shows them
+  (loading, empty, error, success, signed-out).
+- For a flow, include frames **in order** and say so — the sequence encodes the navigation.
+- Note any **interactions/gestures/animations/transitions** the stills can't convey
+  (swipe, long-press, sheet slide-up, the now-playing bar expanding).
+- Capture **light and dark** if you have both — it seeds the theme's two variants.
+- **Label** the attachments ("1-home", "2-detail", "3-checkout-review") and reference those
+  labels in the prompt.
+
+```text
+GOAL
+Build a fake app, Fake〈Name〉App, that recreates the LOOK, FEEL, and FLOW of the app in the
+attached 〈N screenshots / screen-recording frames〉 — onto this repo's architecture.
+
+REFERENCE MATERIAL
+- Attached: 〈list the labeled images, in flow order〉.
+- Source app: 〈real app name / category〉.
+- Flow captured: 〈one line — what the sequence shows〉.
+- Things the stills don't show (I'm telling you): 〈gestures, transitions, animations,
+  states〉.
+- Treat the references as the source of truth for layout, hierarchy, and brand identity —
+  but INTERPRET them into native SwiftUI + Apple HIG. This is a high-fidelity fake, not a
+  pixel-perfect clone; where the source fights HIG, prefer HIG and note the choice.
+
+STEP 1 — VISION READ-BACK (do this and STOP for my confirmation before any code)
+Report back, from the images only:
+  a) SCREEN INVENTORY — each screen, its label, and its purpose.
+  b) NAVIGATION STRUCTURE — root container (TabView / NavigationStack / …), tab or section
+     names, and how screens connect (which control leads where).
+  c) PER-SCREEN COMPONENTS — the repeating UI pieces you'd map to DesignSystem (rows,
+     cards, shelves, headers, hero, now-playing bar…). Mark which likely already exist vs
+     need adding (Template 3).
+  d) EXTRACTED THEME TOKENS — accent + key colors (hex estimates), corner-radius feel,
+     typography character, iconography (SF Symbols vs brand marks). State whether this is
+     AppleTheme or a NEW brand theme (if new, do Template 4).
+  e) SYSTEM SURFACES observed — Face ID, Apple Pay/IAP, permission prompts, launch/splash
+     (→ SystemChrome).
+  f) STATES observed — loading / empty / error / success, if visible.
+  g) DATA MODEL implied — the entities behind the screens (→ a *Servicing protocol + mock).
+  h) GAPS, ASSUMPTIONS & AMBIGUITIES — screens implied but not shown, anything you're
+     guessing, and anything you can't read from the images. List questions for me here.
+Wait for my corrections before proceeding.
+
+STEP 2 — BUILD (after I confirm Step 1)
+Implement Fake〈Name〉App per the confirmed read-back, following Template 1's structure:
+own SPM package, DemoManifest, root nav owning a LocalRouter, DesignSystem components,
+theme, mock service + ScenarioKit personas, and entryRoutes.
+
+USER STORY
+As a 〈demo presenter〉, I want to walk the 〈Name〉 flow shown in the references so that
+〈what the demo proves〉.
+
+NON-GOALS
+- Not a pixel-perfect clone; no real functionality, network, auth, or payment.
+- Do not reproduce the source's proprietary photography/audio/video — use placeholder
+  assets standing in for brand content.
+
+ACCEPTANCE CRITERIA (Given / When / Then)
+- Given the built app beside the references, when compared screen-by-screen, then layout,
+  hierarchy, and flow match the intent of each labeled frame (not pixel-exact).
+- Given the extracted theme, when rendered, then accent/type/shape read as the source brand
+  in both light and dark, via theme tokens (no hardcoded values in components).
+- Given 〈the key flow〉, when I follow the captured sequence, then navigation matches the
+  reference order.
+- Given any observed system surface, when triggered, then the SystemChrome equivalent
+  appears (fake, Apple-styled).
+
+GUARDRAILS
+- Depend only on Core; no sub-app imports. Theme-driven styling only.
+- Brand marks/fonts are bundled placeholders for prototyping; SystemChrome is fake (no real
+  auth/payment). Native SwiftUI + HIG throughout.
+
+BEFORE YOU CODE
+Complete Step 1 and wait for my confirmation. Do not write code until the read-back is
+approved.
+
+DEFINITION OF DONE
+Builds/runs in Simulator; self-registers; each referenced screen is reproduced at
+component fidelity; theme matches in light + dark; captured flow navigates in order; entry
+routes resolve. Give verification steps.
+```
+
+> **Tip:** if the source is a whole app, run Step 1 once for the full set, then build
+> screen-by-screen in small, verifiable increments rather than all at once.
+
+---
+
 ## Worked example (Template 1 filled in)
 
 A reference for the level of specificity that gets a good result:
