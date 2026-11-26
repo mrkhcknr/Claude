@@ -3,6 +3,7 @@ import { clearanceIssues, nearestDoorDist, neighbours } from './geometry';
 import { likelySame } from './util';
 import { tableName } from './store';
 import { rulesOf } from './rules';
+import { byGuest, findDiscrepancies } from './discrepancies';
 
 export const REL_WEIGHT: Record<RelationKind, number> = {
   beside: 14,
@@ -218,6 +219,10 @@ export function analyse(p: Project) {
     });
   }
 
+  // crosscheck discrepancies between imported lists and the chart
+  const discrepancies = findDiscrepancies(p);
+  for (const d of discrepancies.slice(0, 80)) issues.push({ level: d.kind === 'rsvp' || d.kind === 'unmatched' ? 'warn' : 'info', text: d.text, guestIds: d.guestId ? [d.guestId] : undefined });
+
   // likely duplicates
   const dupes: [Guest, Guest][] = [];
   if (p.guests.length < 1500) {
@@ -239,6 +244,8 @@ export function analyse(p: Project) {
   return {
     reports,
     issues,
+    discrepancies,
+    discByGuest: byGuest(discrepancies),
     tableOf,
     clearance: clr,
     stats: {

@@ -45,7 +45,7 @@ export function ListsView({ analysis }: { analysis: Analysis }) {
 function ByTable({ analysis }: { analysis: Analysis }) {
   const project = useStore((s) => s.project);
   const filters = useFilters();
-  const matcher = useMemo(() => guestMatcher(project, filters, analysis.tableOf), [project, filters, analysis.tableOf]);
+  const matcher = useMemo(() => guestMatcher(project, filters, analysis.tableOf, analysis.discByGuest), [project, filters, analysis.tableOf]);
   const byId = useMemo(() => new Map(project.guests.map((g) => [g.id, g])), [project.guests]);
   const tables = [...project.tables].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
   return (
@@ -100,7 +100,7 @@ function GuestTable({ analysis }: { analysis: Analysis }) {
   const filters = useFilters();
   const [open, setOpen] = useState(false);
   const [sort, setSort] = useState<{ c: Col; dir: 1 | -1 }>({ c: 'name', dir: 1 });
-  const matcher = useMemo(() => guestMatcher(project, filters, analysis.tableOf), [project, filters, analysis.tableOf]);
+  const matcher = useMemo(() => guestMatcher(project, filters, analysis.tableOf, analysis.discByGuest), [project, filters, analysis.tableOf]);
   const tname = useMemo(() => new Map(project.tables.map((t) => [t.id, tableName(t)])), [project.tables]);
   const meals = useMemo(() => [...new Set(project.guests.map((g) => g.meal).filter(Boolean))].sort(), [project.guests]);
   const rows = useMemo(() => {

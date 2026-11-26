@@ -167,12 +167,13 @@ function applyRemote(docs: Record<Coll, Map<string, Record<string, unknown>>>) {
     return t as Table;
   });
   for (const t of tables) if (!seating[t.id]) seating[t.id] = cur.seating[t.id] ?? [];
-  const meta = docs.meta.get('project') as Partial<Pick<Project, 'name' | 'settings'>> | undefined;
+  const meta = docs.meta.get('project') as Partial<Pick<Project, 'name' | 'settings' | 'imports'>> | undefined;
   const next = normalizeSeating(
     migrate({
       ...cur,
       name: meta?.name ?? cur.name,
       settings: { ...cur.settings, ...(meta?.settings ?? {}) },
+      imports: meta?.imports ?? cur.imports ?? [],
       guests: keep<Guest>(cur.guests, docs.guests, 'guests'),
       relations: keep<Relation>(cur.relations, docs.relations, 'relations'),
       elements: keep<RoomElement>(cur.elements, docs.elements, 'elements'),
@@ -264,7 +265,7 @@ function diffAndQueue(a: Project, b: Project) {
     }
     for (const id of before.keys()) queue(`tables/${id}`, null);
   }
-  if (a.name !== b.name || a.settings !== b.settings) queue('meta/project', { name: b.name, settings: b.settings });
+  if (a.name !== b.name || a.settings !== b.settings || a.imports !== b.imports) queue('meta/project', JSON.parse(JSON.stringify({ name: b.name, settings: b.settings, imports: b.imports ?? [] })));
 }
 
 /** Replace everything (used by "Open backup file" and "Start over"). */

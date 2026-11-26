@@ -45,7 +45,7 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
   const size = useRef({ w: 800, h: 600 });
   const selected = new Set(selection?.type === 'guest' ? selection.ids : []);
 
-  const matcher = useMemo(() => guestMatcher(project, filters, analysis.tableOf), [project, filters, analysis.tableOf]);
+  const matcher = useMemo(() => guestMatcher(project, filters, analysis.tableOf, analysis.discByGuest), [project, filters, analysis.tableOf]);
   const guests = useMemo(() => project.guests.filter((g) => (includeDeclined || g.rsvp !== 'no') && (!filters.hide || !matcher || matcher(g))), [project.guests, includeDeclined, filters.hide, matcher]);
   const tagList = useMemo(() => allTags(project), [project]);
   const tagColor = useMemo(() => new Map(tagList.map((t, i) => [t.label.toLowerCase(), hueColor(i)])), [tagList]);

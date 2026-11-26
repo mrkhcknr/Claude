@@ -1,6 +1,7 @@
 import Papa from 'papaparse';
 import type { Guest, Rsvp, Side } from './types';
-import { lastName, likelySame, normName, uid } from './util';
+import { lastName, likelySame, matchKey, normName, uid } from './util';
+import { scrubText, stripPII } from './privacy';
 
 export type Field =
   | 'name'
@@ -18,7 +19,6 @@ export type Field =
   | 'table'
   | 'plusOne'
   | 'plusOneOf'
-  | 'address'
   | 'suffix'
   | 'extId';
 
@@ -38,7 +38,6 @@ export const FIELD_LABEL: Record<Field, string> = {
   table: 'Table (existing)',
   plusOne: 'Plus-one allowed',
   plusOneOf: 'Plus-one of (host)',
-  address: 'Address (to infer households)',
   suffix: 'Name suffix',
   extId: 'Guest ID (for re-import)',
 };
@@ -62,7 +61,6 @@ const PATTERNS: [Field, RegExp][] = [
   ['notes', /note|comment/i],
   ['table', /^table([ _-]?(number|no|#|name))?$/i],
   ['plusOne', /plus[ _-]?one|\+ ?1|guest[ _-]?allowed|additional[ _-]?guests?/i],
-  ['address', /^(street[ _-]?)?address([ _-]?(line)?[ _-]?1)?$|mailing[ _-]?address/i],
 ];
 
 export type Mapping = Partial<Record<Field, string>>;
@@ -72,6 +70,8 @@ export interface Parsed {
   rows: Record<string, string>[];
   /** Header columns that look like RSVP-per-event (e.g. "Reception RSVP", "Welcome Party"). */
   rsvpColumns: string[];
+  /** Columns dropped for privacy before anything else saw them. */
+  removed: { header: string; why: string }[];
   source: 'joy' | 'generic';
 }
 
@@ -86,15 +86,18 @@ export function parseCsv(text: string): Parsed {
     skipEmptyLines: 'greedy',
     transformHeader: (h) => h.trim(),
   });
-  const headers = (res.meta.fields ?? []).filter(Boolean);
-  const rows = res.data.filter((r) => Object.values(r).some((v) => (v ?? '').toString().trim()));
+  const rawHeaders = (res.meta.fields ?? []).filter(Boolean);
+  const rawRows = res.data.filter((r) => Object.values(r).some((v) => (v ?? '').toString().trim()));
+  // contact details are dropped here, before mapping, matching or storage
+  const { headers, rows, removed } = stripPII(rawHeaders, rawRows);
   // An event/RSVP column is one whose filled values all look like RSVP answers (Joy uses one column per event).
   const rsvpColumns = headers.filter((h) => {
     const vals = rows.map((r) => (r[h] ?? '').trim()).filter(Boolean);
     return /rsvp|attend|response/i.test(h) || (vals.length > 0 && vals.every((v) => RSVP_VALUE.test(v)));
   });
   const joyish = headers.some((h) => /name on envelope|plus one of/i.test(h)) || (headers.some((h) => /^party \(optional\)$/i.test(h)) && headers.some((h) => /^first name$/i.test(h)));
-  return { headers, rows, rsvpColumns, source: joyish ? 'joy' : 'generic' };
+  const joy = joyish || rawHeaders.some((h) => /name on envelope|plus one of/i.test(h));
+  return { headers, rows, rsvpColumns, removed, source: joy ? 'joy' : 'generic' };
 }
 
 export function detectMapping(headers: string[], rsvpColumns: string[] = []): Mapping {
@@ -136,7 +139,7 @@ export interface ImportOptions {
   /** All event RSVP columns (stored on the guest as the events they attend). */
   eventColumns?: string[];
   /** How to group people into households when there's no party column. */
-  households: 'column' | 'address' | 'lastName' | 'none';
+  households: 'column' | 'lastName' | 'none';
   /** Expand "Jane & John Smith" into two linked guests. */
   splitCouples: boolean;
   /** Create "Guest of X" placeholders for plus-ones. */
@@ -153,7 +156,7 @@ export interface ImportRow {
 }
 
 export function rowsToGuests(rows: Record<string, string>[], o: ImportOptions): ImportRow[] {
-  const get = (r: Record<string, string>, f: Field) => (o.mapping[f] ? (r[o.mapping[f]!] ?? '').toString().trim() : '');
+  const get = (r: Record<string, string>, f: Field) => (o.mapping[f] ? scrubText((r[o.mapping[f]!] ?? '').toString().trim()) : '');
   const out: ImportRow[] = [];
   const partyKeys = new Map<string, string>();
   const keyFor = (k: string) => {
@@ -174,7 +177,6 @@ export function rowsToGuests(rows: Record<string, string>[], o: ImportOptions): 
 
     let partyKey = '';
     if (o.households === 'column') partyKey = keyFor(get(r, 'party'));
-    else if (o.households === 'address') partyKey = keyFor(get(r, 'address'));
     else if (o.households === 'lastName') partyKey = keyFor(lastName(name));
 
     const names = o.splitCouples ? splitCouple(name) : [name];
@@ -280,7 +282,9 @@ export function parsePaste(text: string): { csv: Parsed } | { guests: Guest[] } 
       group = l.slice(0, -1).trim();
       continue;
     }
-    const names = splitCouple(l.replace(/^[-*•\d.)\s]+/, ''));
+    const clean = scrubText(l.replace(/^[-*•\d.)\s]+/, ''));
+    if (!clean) continue;
+    const names = splitCouple(clean);
     const party = names.length > 1 ? uid() : '';
     for (const n of names)
       guests.push({ id: uid(), name: n, party, group, side: '', rsvp: 'yes', meal: '', dietary: '', child: false, accessible: false, notes: /^Guest of /.test(n) ? 'Plus-one' : '', pinned: false });
@@ -296,11 +300,11 @@ export interface MergePlan {
 
 /** Match incoming rows to existing guests by name so re-importing an updated RSVP list keeps seating. */
 export function planMerge(existing: Guest[], incoming: ImportRow[]): MergePlan {
-  const byName = new Map(existing.map((g) => [normName(g.name), g]));
+  const byName = new Map(existing.map((g) => [matchKey(g.name), g]));
   const byExt = new Map(existing.filter((g) => g.extId).map((g) => [g.extId!, g]));
   const plan: MergePlan = { add: [], update: [], possibleDupes: [] };
   for (const row of incoming) {
-    const hit = (row.guest.extId && byExt.get(row.guest.extId)) || byName.get(normName(row.guest.name));
+    const hit = (row.guest.extId && byExt.get(row.guest.extId)) || byName.get(matchKey(row.guest.name));
     if (hit && !/^guest of /i.test(row.guest.name)) {
       plan.update.push({ existing: hit, incoming: row.guest, table: row.table });
       continue;
@@ -316,7 +320,7 @@ export function planMerge(existing: Guest[], incoming: ImportRow[]): MergePlan {
 export function suggestOptions(parsed: Parsed): Pick<ImportOptions, 'households' | 'splitCouples' | 'plusOnes' | 'eventColumns'> {
   const m = detectMapping(parsed.headers, parsed.rsvpColumns);
   return {
-    households: m.party ? 'column' : m.address ? 'address' : 'none',
+    households: m.party ? 'column' : 'none',
     // Joy and most sites already have one row per person
     splitCouples: !m.first,
     plusOnes: !!m.plusOne,

@@ -20,7 +20,7 @@ export function GuestPanel({ analysis, onImport }: { analysis: Analysis; onImpor
   const [quick, setQuick] = useState('');
   const anchor = useRef<Id | null>(null);
   const selected = new Set(selection?.type === 'guest' ? selection.ids : []);
-  const matcher = useMemo(() => guestMatcher(project, filters, analysis.tableOf), [project, filters, analysis.tableOf]);
+  const matcher = useMemo(() => guestMatcher(project, filters, analysis.tableOf, analysis.discByGuest), [project, filters, analysis.tableOf]);
   const tableLabel = useMemo(() => new Map(project.tables.map((t) => [t.id, tableName(t)])), [project.tables]);
 
   const visible = useMemo(() => (matcher ? project.guests.filter(matcher) : project.guests), [project.guests, matcher]);
@@ -238,6 +238,8 @@ export function SearchBox({ open, setOpen, placeholder = 'Search names, groups, 
 }
 
 const FLAG_LABEL: Record<Filters['flags'][number], string> = {
+  discrepancy: 'Discrepancies',
+  noMeal: 'No meal yet',
   noTies: 'No ties yet',
   dietary: 'Dietary needs',
   child: 'Children',

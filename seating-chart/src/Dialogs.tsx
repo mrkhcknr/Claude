@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { Guest, Project } from './types';
+import type { Guest, ImportRecord, Project } from './types';
+import { PrivacyNote, RemovedColumns } from './CrosscheckDialog';
 import { addGuests, emptyProject, loadProject, migrate, setSelection, tableName, toast, update, useStore } from './store';
 import { FIELD_LABEL, detectMapping, parseCsv, parsePaste, planMerge, rowsToGuests, suggestOptions, toRsvp, type Field, type ImportOptions, type Mapping, type Parsed } from './importer';
 import { Dialog, Icon, NumField, TextField, ask } from './ui';
 import { uid } from './util';
 
 // ======================= Import guests =======================
-const FIELDS: Field[] = ['first', 'last', 'name', 'suffix', 'party', 'group', 'rsvp', 'meal', 'dietary', 'side', 'child', 'accessible', 'notes', 'table', 'plusOne', 'plusOneOf', 'address', 'extId'];
+const FIELDS: Field[] = ['first', 'last', 'name', 'suffix', 'party', 'group', 'rsvp', 'meal', 'dietary', 'side', 'child', 'accessible', 'notes', 'table', 'plusOne', 'plusOneOf', 'extId'];
 
 export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const project = useStore((s) => s.project);
@@ -21,6 +22,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const [skipDupes, setSkipDupes] = useState<Set<string>>(new Set());
   const [over, setOver] = useState(false);
   const [fileName, setFileName] = useState('');
+  const [label, setLabel] = useState('Guest list');
 
   useEffect(() => {
     if (!open) {
@@ -35,6 +37,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   function useParsed(p: Parsed) {
     setParsed(p);
+    setLabel(p.source === 'joy' ? 'Joy' : 'Guest list');
     setMapping(detectMapping(p.headers, p.rsvpColumns));
     setOpts(suggestOptions(p));
     setStep('map');
@@ -80,7 +83,8 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
     const partyMap = new Map<string, string>();
     for (const u of plan.update) if (u.incoming.party && u.existing.party) partyMap.set(u.incoming.party, u.existing.party);
     const fix = (g: Guest) => ({ ...g, party: g.party ? partyMap.get(g.party) ?? g.party : '' });
-    const added = addGuests(toAdd.map((r) => fix(r.guest)));
+    const src = (g: Guest) => (pasted ? {} : { [label]: Object.fromEntries(Object.entries({ rsvp: mapping.rsvp ? g.rsvp : undefined, meal: g.meal || undefined, dietary: g.dietary || undefined }).filter(([, v]) => v !== undefined)) });
+    const added = addGuests(toAdd.map((r) => ({ ...fix(r.guest), sources: src(r.guest) })));
     if (updateExisting && plan.update.length) {
       update((d) => {
         for (const u of plan.update) {
@@ -94,10 +98,25 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
           if (inc.events) g.events = inc.events;
           if (inc.party && !g.party) g.party = inc.party;
           if (inc.side && !g.side) g.side = inc.side;
+          if (!pasted) g.sources = { ...(g.sources ?? {}), ...src(u.incoming) };
           const tags = new Set([...g.group.split(/[,;|]/), ...inc.group.split(/[,;|]/)].map((x) => x.trim()).filter(Boolean));
           g.group = [...tags].join(', ');
         }
       });
+    }
+    if (!pasted) {
+      const prev = project.imports?.find((i) => i.label === label);
+      const rec: ImportRecord = {
+        id: prev?.id ?? uid(),
+        label,
+        kind: 'guests',
+        at: new Date().toISOString(),
+        rows: rows.length,
+        unmatched: [],
+        covered: [...added.map((g) => g.id), ...plan.update.map((u) => u.existing.id)],
+        dismissed: prev?.dismissed ?? [],
+      };
+      update((d) => void (d.imports = [...(d.imports ?? []).filter((i) => i.id !== rec.id), rec]));
     }
     // seat from a "table" column, if present
     const seats = toAdd.filter((r) => r.table).map((r, i) => ({ gid: added[i]?.id, t: tableBy.get(r.table!.toLowerCase()) }));
@@ -182,15 +201,17 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
               placeholder={'College friends:\nAlex & Sam Rivera\nPriya Patel +1\n\nWork:\nJordan Lee'}
             />
           </label>
-          <div className="callout">
-            <Icon name="info" size="sm" />
-            <span>Only names, households, tags, RSVPs, meals and dietary notes are imported. Emails, phone numbers and addresses stay out of the shared seating chart.</span>
-          </div>
+          <PrivacyNote />
         </>
       )}
 
       {step === 'map' && parsed && (
         <>
+          <RemovedColumns parsed={parsed} />
+          <label className="field" style={{ maxWidth: 320 }}>
+            <span>Name this list (used when comparing lists)</span>
+            <input className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
+          </label>
           <div className="row">
             {parsed.source === 'joy' && <span className="badge ok">Joy export detected</span>}
             <span className="muted">
@@ -222,7 +243,6 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
               <span>Households</span>
               <select className="input" value={opts.households} onChange={(e) => setOpts({ ...opts, households: e.target.value as ImportOptions['households'] })}>
                 <option value="column">From the party / household column</option>
-                <option value="address">People at the same address</option>
                 <option value="lastName">People with the same last name</option>
                 <option value="none">Don't link anyone</option>
               </select>

@@ -26,6 +26,29 @@ export interface Guest {
   extId?: string;
   /** Events this guest is attending, from the import (e.g. "Rehearsal Dinner"). */
   events?: string[];
+  /** What each imported list said about this guest, keyed by the list's label. */
+  sources?: Record<string, SourceInfo>;
+}
+
+export interface SourceInfo {
+  rsvp?: Rsvp;
+  meal?: string;
+  dietary?: string;
+}
+
+/** One imported list (the guest list itself, or an RSVP / meal crosscheck). */
+export interface ImportRecord {
+  id: Id;
+  label: string;
+  kind: 'guests' | 'crosscheck';
+  at: string;
+  rows: number;
+  /** Names in that list that matched no guest. */
+  unmatched: string[];
+  /** Guest ids this list covered, so "missing from list" can be computed later. */
+  covered: Id[];
+  /** Discrepancies the couple marked as fine: `${guestId}:${field}:${label}` */
+  dismissed?: string[];
 }
 
 export type RelationKind = 'beside' | 'together' | 'prefer' | 'avoid' | 'apart';
@@ -145,6 +168,7 @@ export interface Project {
   /** tableId -> array of guestIds by seat index (null = empty seat) */
   seating: Record<Id, (Id | null)[]>;
   settings: Settings;
+  imports?: ImportRecord[];
 }
 
 export type Selection =

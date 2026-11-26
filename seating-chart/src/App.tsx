@@ -8,6 +8,8 @@ import { GuestPanel } from './GuestPanel';
 import { Inspector } from './Inspector';
 import { NetworkView } from './NetworkView';
 import { ListsView } from './ListsView';
+import { GuestsView } from './GuestsView';
+import { CrosscheckDialog } from './CrosscheckDialog';
 import { AutoSeatDialog, ImportDialog, OpenFileDialog, SettingsDialog } from './Dialogs';
 import { BrandMark, ConfirmHost, Icon, Menu, MenuItem } from './ui';
 import { backupJson, fileBase, saveFile, seatingChartHtml } from './exporters';
@@ -20,7 +22,8 @@ export function App() {
   const future = useStore((s) => s.future.length);
   const toastMsg = useStore((s) => s.toast);
   const sync = useSync();
-  const [dlg, setDlg] = useState<'' | 'import' | 'auto' | 'rules' | 'claude' | 'settings' | 'open'>('');
+  const [dlg, setDlg] = useState<'' | 'import' | 'cross' | 'auto' | 'rules' | 'claude' | 'settings' | 'open'>('');
+  const selection = useStore((s) => s.selection);
   const [mpane, setMpane] = useState<'guests' | 'stage' | 'details'>('stage');
   // analysis is shared by every panel; recomputed when the project changes
   const analysis = useMemo(() => analyse(project), [project]);
@@ -120,7 +123,7 @@ export function App() {
             : 'Saved in this browser';
 
   return (
-    <div className="app" data-mpane={mpane}>
+    <div className="app" data-mpane={mpane} data-panels={view === 'guests' ? (selection?.type === 'guest' && selection.ids.length === 1 ? 'full-detail' : 'full') : undefined}>
       <header className="topbar">
         <div className="brand">
           <BrandMark />
@@ -133,6 +136,9 @@ export function App() {
         <nav className="seg" aria-label="Views">
           <button aria-pressed={view === 'plan'} onClick={() => setView('plan')}>
             <Icon name="plan" size="sm" /> <span className="hide-sm">Floor plan</span>
+          </button>
+          <button aria-pressed={view === 'guests'} onClick={() => setView('guests')}>
+            <Icon name="users" size="sm" /> <span className="hide-sm">Guests</span>
           </button>
           <button aria-pressed={view === 'network'} onClick={() => setView('network')}>
             <Icon name="graph" size="sm" /> <span className="hide-sm">Social graph</span>
@@ -156,6 +162,9 @@ export function App() {
             <>
               <MenuItem icon="upload" onClick={() => (setDlg('import'), close())}>
                 Import guests (Joy, CSV…)
+              </MenuItem>
+              <MenuItem icon="check" onClick={() => (setDlg('cross'), close())}>
+                Crosscheck RSVPs & meals
               </MenuItem>
               <MenuItem icon="layout" onClick={() => (setDlg('open'), close())}>
                 Open layout or backup
@@ -183,6 +192,7 @@ export function App() {
 
       <GuestPanel analysis={analysis} onImport={() => setDlg('import')} />
       {view === 'plan' && <FloorPlan analysis={analysis} />}
+      {view === 'guests' && <GuestsView analysis={analysis} />}
       {view === 'network' && <NetworkView analysis={analysis} />}
       {view === 'lists' && <ListsView analysis={analysis} />}
       <Inspector analysis={analysis} onAutoSeat={(tab) => setDlg(tab ?? 'auto')} onSettings={() => setDlg('settings')} />
@@ -209,6 +219,7 @@ export function App() {
       <ImportDialog open={dlg === 'import'} onClose={() => setDlg('')} />
       <AutoSeatDialog open={dlg === 'auto' || dlg === 'rules' || dlg === 'claude'} initialTab={dlg === 'rules' ? 'rules' : dlg === 'claude' ? 'claude' : 'seat'} onClose={() => setDlg('')} />
       <SettingsDialog open={dlg === 'settings'} onClose={() => setDlg('')} />
+      <CrosscheckDialog open={dlg === 'cross'} onClose={() => setDlg('')} />
       <OpenFileDialog open={dlg === 'open'} onClose={() => setDlg('')} />
       <ConfirmHost />
     </div>

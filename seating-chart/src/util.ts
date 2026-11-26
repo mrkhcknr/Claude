@@ -7,14 +7,22 @@ export const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.ma
 
 export const snapTo = (v: number, step: number) => Math.round(v / step) * step;
 
+/** Lower-case, accent-free, punctuation-free name. Keeps letters from every script (e.g. 陳, Ελένη). */
 export const normName = (s: string) =>
   s
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9 ]/g, '')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^\p{L}\p{N} ]/gu, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+
+/** normName without titles and suffixes, for matching people across lists. */
+export const matchKey = (s: string) =>
+  normName(s)
+    .split(' ')
+    .filter((w) => !/^(mr|mrs|ms|mx|dr|jr|sr|ii|iii|iv|esq|phd|md)$/.test(w))
+    .join(' ');
 
 export const FT_PER_M = 3.28084;
 

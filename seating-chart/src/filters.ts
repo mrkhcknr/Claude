@@ -11,7 +11,7 @@ export interface Filters {
   tags: string[];
   tableId: Id | '';
   meal: string;
-  flags: ('dietary' | 'child' | 'accessible' | 'noTies' | 'plusOne' | 'pinned')[];
+  flags: ('dietary' | 'child' | 'accessible' | 'noTies' | 'plusOne' | 'pinned' | 'discrepancy' | 'noMeal')[];
   /** In the plan and graph: hide non-matching guests instead of dimming them. */
   hide: boolean;
 }
@@ -27,7 +27,7 @@ export function activeCount(f: Filters) {
 }
 
 /** Returns a predicate for guests, or null when no filter is active. */
-export function guestMatcher(p: Project, f: Filters, tableOf: Map<Id, Id>): ((g: Guest) => boolean) | null {
+export function guestMatcher(p: Project, f: Filters, tableOf: Map<Id, Id>, disc?: Map<Id, unknown[]>): ((g: Guest) => boolean) | null {
   if (!activeCount(f)) return null;
   const q = normName(f.q);
   const tagSet = f.tags.map((t) => t.toLowerCase());
@@ -62,6 +62,8 @@ export function guestMatcher(p: Project, f: Filters, tableOf: Map<Id, Id>): ((g:
       if (fl === 'pinned' && !g.pinned) return false;
       if (fl === 'plusOne' && !/plus-one|^guest of /i.test(`${g.notes} ${g.name}`)) return false;
       if (fl === 'noTies' && tied?.has(g.id)) return false;
+      if (fl === 'discrepancy' && !disc?.has(g.id)) return false;
+      if (fl === 'noMeal' && (g.meal || g.rsvp === 'no')) return false;
     }
     return true;
   };

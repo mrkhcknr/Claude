@@ -29,6 +29,7 @@ import {
 import { REL_LABEL, REL_SHORT, type Analysis, type Issue } from './scoring';
 import { allMeals, allTags, setFilters } from './filters';
 import { useDrag } from './dnd';
+import { discLabel, dismiss, useListValue } from './discrepancies';
 import { fmtLen, uid } from './util';
 import { Icon, NumField, TextField } from './ui';
 
@@ -95,6 +96,30 @@ function Overview({ analysis, onAutoSeat, onSettings }: { analysis: Analysis; on
           {st.declined} declined{st.children ? ` · ${st.children} children` : ''}
         </span>
       </div>
+      {analysis.discrepancies.length > 0 && (
+        <div className="section">
+          <h3>
+            Discrepancies <span className="badge bad num">{analysis.discrepancies.length}</span>
+            <span className="spacer" />
+            <button
+              className="btn ghost sm"
+              onClick={() => {
+                setFilters({ flags: ['discrepancy'] });
+                setView('guests');
+              }}
+            >
+              Review
+            </button>
+          </h3>
+          <span className="muted" style={{ fontSize: 12 }}>
+            {(['rsvp', 'meal', 'dietary', 'missing', 'unmatched'] as const)
+              .map((k) => [k, analysis.discrepancies.filter((d) => d.kind === k).length] as const)
+              .filter(([, n]) => n)
+              .map(([k, n]) => `${n} ${discLabel[k].toLowerCase()}`)
+              .join(' · ')}
+          </span>
+        </div>
+      )}
       {meals.length > 0 && (
         <div className="section">
           <h3>
@@ -558,7 +583,6 @@ function GuestInspector({ g, analysis }: { g: Guest; analysis: Analysis }) {
   const rels = project.relations.filter((r) => r.a === g.id || r.b === g.id);
   const byId = useMemo(() => new Map(project.guests.map((x) => [x.id, x])), [project.guests]);
   const table = loc ? project.tables.find((t) => t.id === loc.tableId) : undefined;
-  void analysis;
   return (
     <>
       <div className="section">
@@ -623,6 +647,39 @@ function GuestInspector({ g, analysis }: { g: Guest; analysis: Analysis }) {
           </select>
         </label>
       </div>
+      {(analysis.discByGuest.get(g.id)?.length ?? 0) > 0 && (
+        <div className="section">
+          <h3>
+            Discrepancies <span className="badge bad num">{analysis.discByGuest.get(g.id)!.length}</span>
+          </h3>
+          {analysis.discByGuest.get(g.id)!.map((d) => (
+            <div key={d.key} style={{ display: 'grid', gap: 4 }}>
+              <span style={{ fontSize: 12.5 }}>{d.text}</span>
+              <span className="row" style={{ gap: 4 }}>
+                {(d.kind === 'rsvp' || d.kind === 'meal' || d.kind === 'dietary') && (
+                  <button className="btn sm" onClick={() => useListValue(d)}>
+                    Use {d.label}: {d.list}
+                  </button>
+                )}
+                <button className="btn ghost sm" onClick={() => dismiss(d)}>
+                  {d.kind === 'missing' ? 'Ignore' : 'Keep chart'}
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {Object.keys(g.sources ?? {}).length > 0 && (
+        <div className="section">
+          <h3>What each list says</h3>
+          {Object.entries(g.sources!).map(([l, s]) => (
+            <div key={l} className="kv" style={{ cursor: 'default' }}>
+              <span>{l}</span>
+              <span className="muted">{[s.rsvp && (s.rsvp === 'yes' ? 'Coming' : s.rsvp === 'no' ? 'Declined' : 'Pending'), s.meal, s.dietary].filter(Boolean).join(' · ') || 'listed'}</span>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="section">
         <h3>RSVP & meal</h3>
         <div className="seg">

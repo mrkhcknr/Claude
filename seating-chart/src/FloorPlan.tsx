@@ -118,7 +118,7 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
 
   // ---------- derived ----------
   const guestById = useMemo(() => new Map(project.guests.map((x) => [x.id, x])), [project.guests]);
-  const matcher = useMemo(() => guestMatcher(project, filters, analysis.tableOf), [project, filters, analysis.tableOf]);
+  const matcher = useMemo(() => guestMatcher(project, filters, analysis.tableOf, analysis.discByGuest), [project, filters, analysis.tableOf]);
   const clashTables = useMemo(() => new Set(analysis.clearance.map((c) => c.tableId)), [analysis.clearance]);
   const colorOf = useMemo(() => seatColorFn(project), [project]);
   const selIds = new Set(selection?.type === 'table' || selection?.type === 'element' ? selection.ids : []);

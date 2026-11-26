@@ -28,7 +28,7 @@ export const emptyProject = (): Project => ({
   settings: defaultSettings(),
 });
 
-export type View = 'plan' | 'network' | 'lists';
+export type View = 'plan' | 'guests' | 'network' | 'lists';
 
 export interface Camera {
   /** world (ft) coordinate at the canvas origin */
