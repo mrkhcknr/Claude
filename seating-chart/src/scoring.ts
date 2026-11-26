@@ -1,8 +1,11 @@
 import type { Guest, Id, Project, RelationKind, Table } from './types';
-import { clearanceIssues, nearestDoorDist } from './geometry';
+import { clearanceIssues, nearestDoorDist, neighbours } from './geometry';
 import { likelySame } from './util';
+import { tableName } from './store';
+import { rulesOf } from './rules';
 
 export const REL_WEIGHT: Record<RelationKind, number> = {
+  beside: 14,
   together: 12,
   prefer: 4,
   avoid: -6,
@@ -10,21 +13,23 @@ export const REL_WEIGHT: Record<RelationKind, number> = {
 };
 
 export const REL_LABEL: Record<RelationKind, string> = {
-  together: 'Must sit together',
+  beside: 'Seat next to each other',
+  together: 'Same table',
   prefer: 'Prefer together',
   avoid: 'Prefer apart',
   apart: 'Never same table',
 };
 
 export const REL_SHORT: Record<RelationKind, string> = {
-  together: 'Together',
+  beside: 'Next to',
+  together: 'Same table',
   prefer: 'Prefer',
   avoid: 'Avoid',
   apart: 'Never',
 };
 
 export const GROUP_WEIGHT = 2.5;
-export const PARTY_WEIGHT = 12;
+export const PARTY_WEIGHT = 30;
 export const SIDE_WEIGHT = 0.3;
 export const KIDS_WEIGHT = 1;
 
@@ -38,6 +43,8 @@ export const groupTags = (g: Guest) =>
     .filter(Boolean);
 
 export function buildAffinity(p: Project) {
+  const R = rulesOf(p.settings);
+  const relW: Record<RelationKind, number> = { beside: R.beside, together: R.together, prefer: R.prefer, avoid: R.avoid, apart: R.apartHard ? -1000 : R.apart };
   const rel = new Map<string, RelationKind>();
   for (const r of p.relations) rel.set(key(r.a, r.b), r.kind);
   const byId = new Map(p.guests.map((g) => [g.id, g]));
@@ -45,39 +52,40 @@ export function buildAffinity(p: Project) {
   // smaller, more specific groups count for more than big catch-all ones
   const tagSize = new Map<string, number>();
   for (const t of tags.values()) for (const x of t) tagSize.set(x, (tagSize.get(x) ?? 0) + 1);
-  const tagW = (t: string) => GROUP_WEIGHT * (0.6 + 0.8 * Math.min(1, 10 / (tagSize.get(t) ?? 1)));
+  const tagW = (t: string) => (R.specificGroups ? R.group * (0.6 + 0.8 * Math.min(1, 10 / (tagSize.get(t) ?? 1))) : R.group);
   function weight(a: Id, b: Id) {
     const ga = byId.get(a),
       gb = byId.get(b);
     if (!ga || !gb) return 0;
     let w = 0;
     const r = rel.get(key(a, b));
-    if (r) w += REL_WEIGHT[r];
-    if (ga.party && ga.party === gb.party) w += PARTY_WEIGHT;
+    if (r) w += relW[r];
+    if (ga.party && ga.party === gb.party) w += R.household === 'soft' ? 10 : PARTY_WEIGHT;
     const ta = tags.get(a)!,
       tb = tags.get(b)!;
     let tw = 0;
     for (const t of ta) if (tb.includes(t)) tw += tagW(t);
-    w += Math.min(tw, GROUP_WEIGHT * 2.4);
-    if (ga.side && ga.side === gb.side) w += SIDE_WEIGHT;
-    if (ga.child && gb.child) w += KIDS_WEIGHT;
+    w += Math.min(tw, R.group * 2.4);
+    if (ga.side && gb.side && ga.side !== 'both' && gb.side !== 'both') w += ga.side === gb.side ? R.side : -R.side * 0.5;
+    if (ga.child && gb.child) w += R.kids;
     return w;
   }
-  return { weight, relation: (a: Id, b: Id) => rel.get(key(a, b)) };
+  return { weight, relation: (a: Id, b: Id) => rel.get(key(a, b)), rules: R };
 }
 
 /** Bonus/penalty for a guest sitting at a given table regardless of who else is there. */
 export function tableFit(g: Guest, t: Table, p: Project) {
+  const R = rulesOf(p.settings);
   let w = 0;
   const res = t.reservedFor.trim().toLowerCase();
   if (res) {
     const tags = groupTags(g);
     const matches = tags.includes(res) || (g.child && /kid|child/.test(res)) || g.side === res || (res === 'family' && tags.some((x) => x.includes('family')));
-    w += matches ? 6 : -10;
+    w += matches ? R.reserved * 0.75 : -R.reserved * 1.25;
   }
-  if (g.accessible) {
+  if (g.accessible && R.accessible) {
     const d = nearestDoorDist(p, t);
-    if (Number.isFinite(d)) w += Math.max(-4, 4 - d / 6);
+    if (Number.isFinite(d)) w += R.accessible * Math.max(-1, 1 - d / 24);
   }
   return w;
 }
@@ -116,7 +124,7 @@ export function analyse(p: Project) {
       let pos = false;
       for (let j = 0; j < guests.length; j++) {
         if (i === j) continue;
-        if (weight(guests[i].id, guests[j].id) >= 1.4) pos = true;
+        if (weight(guests[i].id, guests[j].id) >= 1) pos = true;
         if (j > i) {
           const r = relation(guests[i].id, guests[j].id);
           if (r === 'apart' || r === 'avoid') conflicts.push({ a: guests[i], b: guests[j], kind: r });
@@ -152,21 +160,21 @@ export function analyse(p: Project) {
     for (const c of r.conflicts)
       issues.push({
         level: c.kind === 'apart' ? 'error' : 'warn',
-        text: `${c.a.name} & ${c.b.name} are both at ${r.table.label} (${c.kind === 'apart' ? 'never same table' : 'prefer apart'})`,
+        text: `${c.a.name} & ${c.b.name} are both at ${tableName(r.table)} (${c.kind === 'apart' ? 'never same table' : 'prefer apart'})`,
         tableId: r.table.id,
         guestIds: [c.a.id, c.b.id],
       });
-    for (const g of r.isolated) issues.push({ level: 'info', text: `${g.name} has no ties at ${r.table.label}`, tableId: r.table.id, guestIds: [g.id] });
+    for (const g of r.isolated) issues.push({ level: 'info', text: `${g.name} has no ties at ${tableName(r.table)}`, tableId: r.table.id, guestIds: [g.id] });
     const res = r.table.reservedFor.trim();
     if (res) {
       const off = r.guests.filter((g) => tableFit(g, r.table, { ...p, elements: [] }) < 0);
-      if (off.length) issues.push({ level: 'warn', text: `${off.length} guest(s) at ${r.table.label} aren't in "${res}"`, tableId: r.table.id, guestIds: off.map((g) => g.id) });
+      if (off.length) issues.push({ level: 'warn', text: `${off.length} guest(s) at ${tableName(r.table)} aren't in "${res}"`, tableId: r.table.id, guestIds: off.map((g) => g.id) });
     }
     for (const g of r.guests) {
       if (!g.accessible) continue;
       const d = nearestDoorDist(p, r.table);
       if (!Number.isFinite(d)) issues.push({ level: 'info', text: `${g.name} needs an accessible seat — add doors to the plan so it can be checked`, guestIds: [g.id], tableId: r.table.id });
-      else if (d > 25) issues.push({ level: 'warn', text: `${g.name} needs an accessible seat but ${r.table.label} is ${Math.round(d)} ft from the nearest door`, guestIds: [g.id], tableId: r.table.id });
+      else if (d > 25) issues.push({ level: 'warn', text: `${g.name} needs an accessible seat but ${tableName(r.table)} is ${Math.round(d)} ft from the nearest door`, guestIds: [g.id], tableId: r.table.id });
     }
   }
 
@@ -177,22 +185,30 @@ export function analyse(p: Project) {
     const tabs = new Set(members.map((g) => tableOf.get(g.id)).filter(Boolean));
     if (tabs.size > 1) issues.push({ level: 'warn', text: `Household split across tables: ${members.map((m) => m.name).join(', ')}`, guestIds: members.map((g) => g.id) });
   }
-  // together relations split
+  // "same table" / "next to" relations that aren't honoured
+  const seatOf = new Map<Id, number>();
+  for (const arr of Object.values(p.seating)) arr.forEach((g, i) => g && seatOf.set(g, i));
   for (const r of p.relations) {
-    if (r.kind !== 'together') continue;
+    if (r.kind !== 'together' && r.kind !== 'beside') continue;
     const ta = tableOf.get(r.a),
       tb = tableOf.get(r.b);
-    if (ta && tb && ta !== tb) {
-      const a = byId.get(r.a)!,
-        b = byId.get(r.b)!;
-      issues.push({ level: 'warn', text: `${a.name} & ${b.name} should sit together but are apart`, guestIds: [a.id, b.id] });
+    if (!ta || !tb) continue;
+    const a = byId.get(r.a)!,
+      b = byId.get(r.b)!;
+    if (ta !== tb) issues.push({ level: 'warn', text: `${a.name} & ${b.name} should ${r.kind === 'beside' ? 'sit next to each other' : 'share a table'} but are at different tables`, guestIds: [a.id, b.id] });
+    else if (r.kind === 'beside') {
+      const t = p.tables.find((x) => x.id === ta);
+      const sa = seatOf.get(r.a)!,
+        sb = seatOf.get(r.b)!;
+      if (t && !neighbours(t).some(([i, j]) => (i === sa && j === sb) || (i === sb && j === sa)))
+        issues.push({ level: 'warn', text: `${a.name} & ${b.name} are at ${tableName(t)} but not next to each other`, guestIds: [a.id, b.id], tableId: t.id });
     }
   }
   for (const g of declinedSeated) issues.push({ level: 'warn', text: `${g.name} declined but still has a seat`, guestIds: [g.id], tableId: tableOf.get(g.id) });
 
   // clearance
   const clr = clearanceIssues(p);
-  const tName = new Map(p.tables.map((t) => [t.id, t.label]));
+  const tName = new Map(p.tables.map((t) => [t.id, tableName(t)]));
   for (const c of clr) {
     const other = c.otherKind === 'table' ? tName.get(c.otherId) : (p.elements.find((e) => e.id === c.otherId)?.kind ?? 'obstacle');
     issues.push({

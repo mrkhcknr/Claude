@@ -28,7 +28,7 @@ export interface Guest {
   events?: string[];
 }
 
-export type RelationKind = 'together' | 'prefer' | 'avoid' | 'apart';
+export type RelationKind = 'beside' | 'together' | 'prefer' | 'avoid' | 'apart';
 
 export interface Relation {
   id: Id;
@@ -42,7 +42,10 @@ export type TableShape = 'round' | 'rect' | 'square' | 'oval' | 'head';
 export interface Table {
   id: Id;
   shape: TableShape;
+  /** Number/label used by venue staff, e.g. "Table 7". */
   label: string;
+  /** Display name, e.g. "Peony". Falls back to label. */
+  name?: string;
   x: number;
   y: number;
   rotation: number;
@@ -126,8 +129,10 @@ export interface Settings {
   partner1: string;
   partner2: string;
   showSeatNames: boolean;
-  /** Colour tables by: none, side mix, or score. */
-  colorBy: 'none' | 'side' | 'score';
+  /** Auto-seat heuristics (see rules.ts). Missing keys use the defaults. */
+  rules?: Partial<import('./rules').SeatingRules>;
+  /** What seat colours mean on the plan. */
+  colorBy: 'side' | 'meal' | 'group';
 }
 
 export interface Project {

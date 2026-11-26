@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Id } from './types';
-import { getState, seatAtTable, seatGuest, toast, unseat, updateGuests } from './store';
+import { getState, tableName, seatAtTable, seatGuest, toast, unseat, updateGuests } from './store';
 
 /** Where a guest drag can land. Read from data-* attributes on the element under the pointer. */
 export type DropTarget =
@@ -108,6 +108,6 @@ export function drop(guestIds: Id[], t: DropTarget) {
     return;
   }
   const n = seatAtTable(guestIds, t.tableId, t.kind === 'seat' ? t.seat : undefined);
-  if (n < guestIds.length) toast(n ? `Only ${n} of ${guestIds.length} fit at ${table.label}` : `${table.label} is full`);
-  else if (guestIds.length > 1) toast(`Seated ${who} at ${table.label}`, true);
+  if (n < guestIds.length) toast(n ? `Only ${n} of ${guestIds.length} fit at ${tableName(table)}` : `${tableName(table)} is full`);
+  else if (guestIds.length > 1) toast(`Seated ${who} at ${tableName(table)}`, true);
 }

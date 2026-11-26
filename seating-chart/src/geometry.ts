@@ -86,6 +86,25 @@ function rectPoly(o: { x: number; y: number; rotation: number }, x0: number, y0:
   ].map((p) => toWorld(o, p));
 }
 
+/** Bare table top, no chairs. */
+export function tablePoly(t: Table): Pt[] {
+  if (t.shape === 'round') return circlePoly(t.x, t.y, t.w / 2);
+  if (t.shape === 'oval') return circlePoly(0, 0, t.h / 2, t.w / 2).map((p) => toWorld(t, p));
+  return rectPoly(t, -t.w / 2, -t.h / 2, t.w / 2, t.h / 2);
+}
+
+/** Tables pushed together end-to-end (a family-style run) whose chairs don't collide. */
+function joined(a: Table, b: Table) {
+  if (polyDist(tablePoly(a), tablePoly(b)) > 0.3) return false;
+  const sa = seatWorld(a),
+    sb = seatWorld(b);
+  const pa = tablePoly(a),
+    pb = tablePoly(b);
+  for (const p of sa) if (inPoly(p, pb) || sb.some((q) => Math.hypot(p.x - q.x, p.y - q.y) < CHAIR_R * 1.6)) return false;
+  for (const q of sb) if (inPoly(q, pa)) return false;
+  return true;
+}
+
 /** Table + chairs footprint. */
 export function tableFootprint(t: Table): Pt[] {
   const d = t.seats > 0 ? CHAIR_DEPTH : 0;
@@ -195,6 +214,7 @@ export function clearanceIssues(p: Project): ClearanceIssue[] {
   for (let i = 0; i < tp.length; i++) {
     for (let j = i + 1; j < tp.length; j++) {
       if (!near(tp[i].bb, tp[j].bb, clr)) continue;
+      if (joined(tp[i].t, tp[j].t)) continue;
       const g = polyDist(tp[i].poly, tp[j].poly);
       if (g < clr) out.push({ tableId: tp[i].t.id, otherId: tp[j].t.id, otherKind: 'table', gap: g });
     }

@@ -4,8 +4,6 @@ import { buildAffinity, tableFit } from './scoring';
 export interface AutoSeatOptions {
   /** keep: leave everyone already seated where they are; reseat: move anyone who isn't pinned */
   mode: 'keep' | 'reseat';
-  /** even: spread guests across tables; full: fill tables and leave whole tables empty */
-  balance: 'even' | 'full';
   includePending: boolean;
   /** Restrict to these tables (default: all unlocked). */
   tableIds?: Id[];
@@ -26,7 +24,7 @@ export interface AutoSeatResult {
  * greedy-placing them, then improving with simulated annealing over moves and swaps.
  */
 export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
-  const { weight } = buildAffinity(p);
+  const { weight, relation, rules: R } = buildAffinity(p);
   const warnings: string[] = [];
   const guests = p.guests.filter((g) => g.rsvp === 'yes' || (opt.includePending && g.rsvp === 'pending'));
   const gIndex = new Map(guests.map((g, i) => [g.id, i]));
@@ -59,14 +57,26 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
       W[j * N + i] = w;
     }
   const fit = new Float32Array(N * Math.max(1, T));
-  for (let i = 0; i < N; i++) for (let t = 0; t < T; t++) fit[i * T + t] = tableFit(guests[i], tables[t], p);
+  const current = new Map<Id, Id>();
+  for (const [tid, arr] of Object.entries(p.seating)) for (const g of arr) if (g) current.set(g, tid);
+  for (let i = 0; i < N; i++)
+    for (let t = 0; t < T; t++) {
+      fit[i * T + t] = tableFit(guests[i], tables[t], p);
+      if (R.stability && current.get(guests[i].id) === tables[t].id) fit[i * T + t] += R.stability;
+    }
 
   // ---- units: union-find on strong positive ties among movable guests
   const parent = Array.from({ length: N }, (_, i) => i);
   const find = (x: number): number => (parent[x] === x ? x : (parent[x] = find(parent[x])));
   const movable = (i: number) => fixedAt[i] < 0 && !fixedElsewhere[i];
+  // households (unless soft) and "next to" pairs move as one unit so they stay side by side
   for (let i = 0; i < N; i++)
-    for (let j = i + 1; j < N; j++) if (W[i * N + j] >= 12 && movable(i) && movable(j)) parent[find(i)] = find(j);
+    for (let j = i + 1; j < N; j++) {
+      if (!movable(i) || !movable(j)) continue;
+      const sameParty = R.household !== 'soft' && guests[i].party && guests[i].party === guests[j].party;
+      const beside = R.beside >= 10 && relation(guests[i].id, guests[j].id) === 'beside';
+      if (sameParty || beside) parent[find(i)] = find(j);
+    }
 
   const maxCap = Math.max(0, ...tables.map((t) => t.seats));
   const unitMap = new Map<number, number[]>();
@@ -89,15 +99,22 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
   const totalToSeat = units.reduce((s, u) => s + u.length, 0) + fixedCount.reduce((a, b) => a + b, 0);
   const target = T ? totalToSeat / T : 0;
 
+  const tied = new Uint8Array(64);
   function tableScore(t: number, mem: number[]) {
     let s = 0;
-    for (let a = 0; a < mem.length; a++) {
-      s += fit[mem[a] * T + t];
-      for (let b = a + 1; b < mem.length; b++) s += W[mem[a] * N + mem[b]];
-    }
     const n = mem.length;
-    if (opt.balance === 'even') s -= 0.6 * (n - target) * (n - target);
-    else if (n > 0) s -= 8 + 0.5 * (cap[t] - n);
+    if (R.loner && n > 1) tied.fill(0, 0, n);
+    for (let a = 0; a < n; a++) {
+      s += fit[mem[a] * T + t];
+      for (let b = a + 1; b < n; b++) {
+        const w = W[mem[a] * N + mem[b]];
+        s += w;
+        if (w >= 1 && n <= 64) tied[a] = tied[b] = 1;
+      }
+    }
+    if (R.loner && n > 1 && n <= 64) for (let a = 0; a < n; a++) if (!tied[a]) s -= R.loner;
+    if (R.balance === 'even') s -= R.balanceStrength * (n - target) * (n - target);
+    else if (n > 0) s -= R.balanceStrength * (12 + 0.8 * (cap[t] - n));
     return s;
   }
 
@@ -196,7 +213,7 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
       .map((u, k) => ({ u, k }))
       .filter(({ k }) => unitTable[k] === t)
       .map(({ u }) => u);
-    const seq = orderUnits(newcomers, arr, W, N, gIndex);
+    const seq = R.neighbours ? orderUnits(newcomers.map((u) => orderWithin(u, W, N)), arr, W, N, gIndex) : newcomers.flat();
     const free = arr.map((g, i) => (g ? -1 : i)).filter((i) => i >= 0);
     const startAt = bestStart(arr);
     free.sort((a, b) => ((a - startAt + arr.length) % arr.length) - ((b - startAt + arr.length) % arr.length));
@@ -230,11 +247,29 @@ function bestStart(arr: (Id | null)[]) {
   return best;
 }
 
+/** Order a unit's members so the strongest pairs (e.g. "next to") are adjacent. */
+function orderWithin(u: number[], W: Float32Array, N: number) {
+  if (u.length < 3) return u;
+  const left = [...u];
+  // start from the member with the weakest ties so the chain ends are natural
+  left.sort((a, b) => left.reduce((s, x) => s + W[a * N + x], 0) - left.reduce((s, x) => s + W[b * N + x], 0));
+  const seq = [left.shift()!];
+  while (left.length) {
+    const last = seq[seq.length - 1];
+    let bi = 0;
+    for (let i = 1; i < left.length; i++) if (W[last * N + left[i]] > W[last * N + left[bi]]) bi = i;
+    seq.push(left.splice(bi, 1)[0]);
+  }
+  return seq;
+}
+
 /** Chain units so strongly connected units sit next to each other. */
 function orderUnits(units: number[][], arr: (Id | null)[], W: Float32Array, N: number, gIndex: Map<Id, number>) {
   if (!units.length) return [];
   const anchor = arr.filter(Boolean).map((g) => gIndex.get(g!)).filter((x): x is number => x !== undefined);
   const aff = (a: number[], b: number[]) => a.reduce((s, i) => s + b.reduce((q, j) => q + W[i * N + j], 0), 0);
+  // neighbours touch at the chain ends, so weigh the last member of one unit against the first of the next
+  const join = (a: number[], b: number[]) => W[a[a.length - 1] * N + b[0]] * 2 + aff(a, b) * 0.25;
   const left = [...units];
   const seq: number[] = [];
   // start with the unit most tied to existing occupants, else the biggest
@@ -245,7 +280,7 @@ function orderUnits(units: number[][], arr: (Id | null)[], W: Float32Array, N: n
     let bi = 0,
       bs = -Infinity;
     for (let i = 0; i < left.length; i++) {
-      const s = aff(cur, left[i]);
+      const s = join(cur, left[i]);
       if (s > bs) {
         bs = s;
         bi = i;

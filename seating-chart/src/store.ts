@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { produce, type Draft } from 'immer';
 import type { Guest, Id, Project, RelationKind, RoomElement, Selection, Table, TableShape, Tool, ZoneKind } from './types';
 import { uid } from './util';
+import { ask } from './ui';
 
 export const STORAGE_KEY = 'wedding-seating:project:v1';
 
@@ -13,7 +14,7 @@ export const defaultSettings = (): Project['settings'] => ({
   partner1: 'Partner 1',
   partner2: 'Partner 2',
   showSeatNames: true,
-  colorBy: 'none',
+  colorBy: 'side',
 });
 
 export const emptyProject = (): Project => ({
@@ -53,6 +54,8 @@ interface State {
 const HISTORY = 200;
 
 function loadInitial(): Project {
+  // inside claude.ai the shared database is the source of truth; don't flash this browser's copy
+  if (typeof window !== 'undefined' && (window as { claude?: unknown }).claude) return emptyProject();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return migrate(JSON.parse(raw));
@@ -109,20 +112,6 @@ export const useStore = create<State>(() => ({
 
 const get = useStore.getState;
 const set = useStore.setState;
-
-// ---------- persistence ----------
-let saveTimer: ReturnType<typeof setTimeout> | undefined;
-useStore.subscribe((s, prev) => {
-  if (s.project === prev.project) return;
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(s.project));
-    } catch {
-      /* quota or private mode: user can still export a file */
-    }
-  }, 300);
-});
 
 // ---------- core update + history ----------
 export function update(recipe: (d: Draft<Project>) => void, opts: { history?: boolean } = {}) {
@@ -378,6 +367,24 @@ export function seatAtTable(guestIds: Id[], tableId: Id, startSeat?: number): nu
   return placed.length;
 }
 
+/** Exchange two guests' seats (either may be unseated). */
+export function swapGuests(a: Id, b: Id) {
+  update((d) => {
+    let pa: [Id, number] | null = null,
+      pb: [Id, number] | null = null;
+    for (const [t, arr] of Object.entries(d.seating)) {
+      const i = arr.indexOf(a),
+        j = arr.indexOf(b);
+      if (i >= 0) pa = [t, i];
+      if (j >= 0) pb = [t, j];
+    }
+    if (pa) d.seating[pa[0]][pa[1]] = b;
+    if (pb) d.seating[pb[0]][pb[1]] = a;
+    if (pa && !pb) d.seating[pa[0]][pa[1]] = b;
+    if (pb && !pa) d.seating[pb[0]][pb[1]] = a;
+  });
+}
+
 export function unseat(ids: Id[]) {
   update((d) => removeEverywhere(d, new Set(ids)));
 }
@@ -415,6 +422,31 @@ export function nextTableLabel(p: Project, offset = 0) {
     if (m) max = Math.max(max, +m[1]);
   }
   return `Table ${max + 1 + offset}`;
+}
+
+export const tableName = (t: Pick<Table, 'label' | 'name'>) => t.name?.trim() || t.label;
+
+export const FLOWERS = [
+  'Peony', 'Ranunculus', 'Dahlia', 'Garden Rose', 'Anemone', 'Hydrangea', 'Magnolia', 'Camellia',
+  'Gardenia', 'Lilac', 'Sweet Pea', 'Tulip', 'Freesia', 'Lisianthus', 'Orchid', 'Iris', 'Jasmine',
+  'Lavender', 'Poppy', 'Wisteria', 'Zinnia', 'Cosmos', 'Hellebore', 'Delphinium', 'Snapdragon',
+  'Calla Lily', 'Marigold', 'Protea', 'Gerbera', 'Foxglove', 'Larkspur', 'Stock', 'Scabiosa', 'Clematis',
+];
+
+/** Give every table (or just the selected ones) a flower name, in table-number order. */
+export function nameTablesAfterFlowers(ids?: Id[]) {
+  const { project } = get();
+  const num = (t: Table) => +(/\d+/.exec(t.label)?.[0] ?? 999);
+  const targets = project.tables.filter((t) => !ids || ids.includes(t.id)).sort((a, b) => num(a) - num(b));
+  const used = new Set(project.tables.filter((t) => !targets.includes(t)).map((t) => t.name).filter(Boolean));
+  const pool = FLOWERS.filter((f) => !used.has(f));
+  update((d) => {
+    targets.forEach((t, i) => {
+      const dt = d.tables.find((x) => x.id === t.id);
+      if (dt) dt.name = pool[i % pool.length] + (i >= pool.length ? ` ${Math.floor(i / pool.length) + 1}` : '');
+    });
+  });
+  toast(`Named ${targets.length} tables after flowers`, true);
 }
 
 export function addTableGrid(preset: TablePreset, count: number, perRow: number, origin: { x: number; y: number }) {
@@ -581,8 +613,11 @@ export function deleteSelection() {
   if (selection.type === 'table') deleteTables(selection.ids);
   else if (selection.type === 'element') deleteElements(selection.ids);
   else if (selection.type === 'guest') {
-    if (selection.ids.length > 3 && !confirm(`Delete ${selection.ids.length} guests?`)) return;
-    deleteGuests(selection.ids);
+    void ask(`Delete ${selection.ids.length === 1 ? 'this guest' : `${selection.ids.length} guests`}?`, {
+      detail: 'They are removed from the guest list, their seats and the social graph. You can undo this.',
+      ok: 'Delete',
+      danger: true,
+    }).then((ok) => ok && deleteGuests(selection.ids));
   }
 }
 

@@ -316,7 +316,7 @@
    "seats": 12,
    "ends": false,
    "locked": false,
-   "reservedFor": "wedding party",
+   "reservedFor": "",
    "color": ""
   },
   {
@@ -331,7 +331,7 @@
    "seats": 12,
    "ends": false,
    "locked": false,
-   "reservedFor": "wedding party",
+   "reservedFor": "",
    "color": ""
   }
  ],

@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "build:single": "tsc -b && vite build --mode single",
     "preview": "vite preview",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "build:artifact": "tsc -b && vite build --mode single && node scripts/artifact.mjs"
   },
   "dependencies": {
     "d3-force": "^3.0.1",
