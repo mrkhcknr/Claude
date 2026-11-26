@@ -1075,6 +1075,10 @@ body.is-dragging .unseat-zone {
   font-family: var(--f-display);
   font-size: 15px;
 }
+.plan .tbl .tlatin {
+  fill: var(--ink-2);
+  font-style: italic;
+}
 .plan .tbl .tnum {
   fill: var(--muted);
   font-size: 10px;

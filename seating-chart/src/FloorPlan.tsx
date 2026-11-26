@@ -28,7 +28,7 @@ import { useDrag, startGuestDrag } from './dnd';
 import { useFilters, guestMatcher, allTags } from './filters';
 import { tagColor as tagColorFor } from './tags';
 import { buildAffinity, groupTags, type Analysis } from './scoring';
-import { clamp, firstName, fmtLen, hueColor, initials, snapTo, uid } from './util';
+import { clamp, firstName, fmtLen, hueColor, initials, shortLatin, snapTo, splitFlowerName, uid } from './util';
 import { Icon, Menu, MenuItem, NumField } from './ui';
 
 /** Loose view over tables and room elements for handle maths. */
@@ -666,21 +666,43 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
                 </g>
                 <g transform={`translate(${t.x} ${t.y}) rotate(${labelRot})`} pointerEvents="none">
                   {t.name?.trim() && t.name.trim() !== t.label ? (
-                    <>
-                      <text className="tname" textAnchor="middle" y={-nameSize * 0.15} style={{ fontSize: nameSize }}>
-                        {label}
-                      </text>
-                      <text className="tnum" textAnchor="middle" y={nameSize * 0.95} style={{ fontSize: Math.max(0.5, 8.5 * k) }}>
-                        {t.label.toUpperCase()}
-                      </text>
-                    </>
+                    (() => {
+                      const [full, latin] = splitFlowerName(label);
+                      const main = full.replace(/（.*?）|\(.*?\)/g, '').trim() || full;
+                      // fit text to the table's length; add detail as you zoom in
+                      const room = (long || t.shape === 'round' || t.shape === 'square' ? t.w : t.w) * 0.88;
+                      const em = (str: string) => [...str].reduce((a, ch) => a + (/[\u3000-\u9fff\uff00-\uffef]/.test(ch) ? 1 : 0.56), 0);
+                      const fsMain = Math.min(nameSize, room / Math.max(1, em(main)));
+                      const lat = shortLatin(latin);
+                      const fsLat = Math.min(Math.max(0.5, 9 * k), room / Math.max(1, em(lat)));
+                      const showLat = !!latin && camera.scale >= 11;
+                      const showNum = camera.scale >= 8;
+                      const small = Math.max(0.45, 8 * k);
+                      return (
+                        <>
+                          <text className="tname" textAnchor="middle" y={showLat ? -fsMain * 0.35 : showNum ? -fsMain * 0.1 : fsMain * 0.35} style={{ fontSize: fsMain }}>
+                            {main}
+                          </text>
+                          {showLat && (
+                            <text className="tlatin" textAnchor="middle" y={fsMain * 0.35 + fsLat * 0.9} style={{ fontSize: fsLat }}>
+                              {lat}
+                            </text>
+                          )}
+                          {showNum && (
+                            <text className="tnum" textAnchor="middle" y={(showLat ? fsMain * 0.35 + fsLat * 0.9 : fsMain * 0.2) + small * 1.3} style={{ fontSize: small }}>
+                              {t.label.toUpperCase()}
+                            </text>
+                          )}
+                        </>
+                      );
+                    })()
                   ) : (
                     <text className="tname" textAnchor="middle" dominantBaseline="central" style={{ fontSize: nameSize }}>
                       {label}
                     </text>
                   )}
-                  {camera.scale > 6 && (
-                    <text className="tcount" textAnchor="middle" y={nameSize * (t.name ? 1.95 : 1.15)} style={{ fontSize: Math.max(0.5, 8.5 * k) }}>
+                  {camera.scale > 6 && !t.name?.trim() && (
+                    <text className="tcount" textAnchor="middle" y={nameSize * (t.name ? (splitFlowerName(t.name)[1] ? 2.4 : 1.95) : 1.15)} style={{ fontSize: Math.max(0.5, 8.5 * k) }}>
                       {filled}/{t.seats}
                     </text>
                   )}

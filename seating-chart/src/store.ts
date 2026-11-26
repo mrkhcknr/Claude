@@ -410,7 +410,10 @@ export function nextTableLabel(p: Project, offset = 0) {
 
 export const tableName = (t: Pick<Table, 'label' | 'name'>) => t.name?.trim() || t.label;
 
+import venueFlowers from './venueFlowers.json';
+
 export const FLOWERS = [
+  ...(venueFlowers as string[]),
   'Peony', 'Ranunculus', 'Dahlia', 'Garden Rose', 'Anemone', 'Hydrangea', 'Magnolia', 'Camellia',
   'Gardenia', 'Lilac', 'Sweet Pea', 'Tulip', 'Freesia', 'Lisianthus', 'Orchid', 'Iris', 'Jasmine',
   'Lavender', 'Poppy', 'Wisteria', 'Zinnia', 'Cosmos', 'Hellebore', 'Delphinium', 'Snapdragon',

@@ -24,6 +24,15 @@ export const matchKey = (s: string) =>
     .filter((w) => !/^(mr|mrs|ms|mx|dr|jr|sr|ii|iii|iv|esq|phd|md)$/.test(w))
     .join(' ');
 
+/** "火鶴 Anthurium" → ["火鶴", "Anthurium"]; names without a Latin part come back whole. */
+export function splitFlowerName(name: string): [string, string] {
+  const m = /^([^A-Za-z]*[\u3400-\u9fff][^A-Za-z]*?)\s*([A-Za-z'].*)$/.exec(name.trim());
+  return m ? [m[1].trim(), m[2].trim()] : [name.trim(), ''];
+}
+
+/** First two words of a Latin name, for tight labels. */
+export const shortLatin = (s: string) => s.replace(/\(.*?\)/g, '').split(/[\s，,]+/).filter(Boolean).slice(0, 2).join(' ');
+
 export const FT_PER_M = 3.28084;
 
 export function fmtLen(ft: number, s: Pick<Settings, 'units'>, digits = 1) {
