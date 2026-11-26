@@ -10,6 +10,7 @@ import { NetworkView } from './NetworkView';
 import { ListsView } from './ListsView';
 import { GuestsView } from './GuestsView';
 import { CrosscheckDialog } from './CrosscheckDialog';
+import { TagManager } from './TagManager';
 import { AutoSeatDialog, ImportDialog, OpenFileDialog, SettingsDialog } from './Dialogs';
 import { BrandMark, ConfirmHost, Icon, Menu, MenuItem } from './ui';
 import { backupJson, fileBase, saveFile, seatingChartHtml } from './exporters';
@@ -22,7 +23,7 @@ export function App() {
   const future = useStore((s) => s.future.length);
   const toastMsg = useStore((s) => s.toast);
   const sync = useSync();
-  const [dlg, setDlg] = useState<'' | 'import' | 'cross' | 'auto' | 'rules' | 'claude' | 'settings' | 'open'>('');
+  const [dlg, setDlg] = useState<'' | 'import' | 'cross' | 'auto' | 'rules' | 'claude' | 'settings' | 'open' | 'tags'>('');
   const selection = useStore((s) => s.selection);
   const [mpane, setMpane] = useState<'guests' | 'stage' | 'details'>('stage');
   // analysis is shared by every panel; recomputed when the project changes
@@ -36,8 +37,13 @@ export function App() {
       /* ignore */
     }
     const open = () => setDlg('open');
+    const tags = () => setDlg('tags');
     window.addEventListener('app:open-layout', open);
-    return () => window.removeEventListener('app:open-layout', open);
+    window.addEventListener('app:tags', tags);
+    return () => {
+      window.removeEventListener('app:open-layout', open);
+      window.removeEventListener('app:tags', tags);
+    };
   }, []);
 
   useEffect(() => {
@@ -166,6 +172,9 @@ export function App() {
               <MenuItem icon="check" onClick={() => (setDlg('cross'), close())}>
                 Crosscheck RSVPs & meals
               </MenuItem>
+              <MenuItem icon="flower" onClick={() => (setDlg('tags'), close())}>
+                Manage tags
+              </MenuItem>
               <MenuItem icon="layout" onClick={() => (setDlg('open'), close())}>
                 Open layout or backup
               </MenuItem>
@@ -220,6 +229,7 @@ export function App() {
       <AutoSeatDialog open={dlg === 'auto' || dlg === 'rules' || dlg === 'claude'} initialTab={dlg === 'rules' ? 'rules' : dlg === 'claude' ? 'claude' : 'seat'} onClose={() => setDlg('')} />
       <SettingsDialog open={dlg === 'settings'} onClose={() => setDlg('')} />
       <CrosscheckDialog open={dlg === 'cross'} onClose={() => setDlg('')} />
+      <TagManager open={dlg === 'tags'} onClose={() => setDlg('')} />
       <OpenFileDialog open={dlg === 'open'} onClose={() => setDlg('')} />
       <ConfirmHost />
     </div>

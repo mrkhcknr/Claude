@@ -35,6 +35,8 @@ export interface SeatingRules {
   stability: number;
   /** Order chairs so the most connected people sit side by side */
   neighbours: boolean;
+  /** Couples (households of two and "Next to" pairs) take two chairs on the same side, next to each other */
+  couplesSideBySide: boolean;
 }
 
 export const DEFAULT_RULES: SeatingRules = {
@@ -56,6 +58,7 @@ export const DEFAULT_RULES: SeatingRules = {
   accessible: 4,
   stability: 0,
   neighbours: true,
+  couplesSideBySide: true,
 };
 
 export const rulesOf = (s: { rules?: Partial<SeatingRules> }): SeatingRules => ({ ...DEFAULT_RULES, ...(s.rules ?? {}) });

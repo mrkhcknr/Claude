@@ -2235,3 +2235,59 @@ select.cell-input.rsvp-pending {
     grid-template-columns: 1fr;
   }
 }
+
+/* tag manager */
+.tag-list {
+  display: grid;
+  gap: 2px;
+  max-height: 52vh;
+  overflow: auto;
+}
+.tag-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 3px 4px;
+  border-radius: var(--r-s);
+}
+.tag-row:hover {
+  background: var(--surface-2);
+}
+.tag-row .tag-name {
+  border-color: transparent;
+  background: transparent;
+}
+.tag-row .tag-name:hover,
+.tag-row .tag-name:focus {
+  border-color: var(--line-2);
+  background: var(--surface);
+}
+.swatch-btn {
+  border: 0;
+  background: transparent;
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.swatch-btn:hover {
+  background: var(--surface);
+}
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(6, 24px);
+  gap: 6px;
+}
+.swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  box-shadow: 0 0 0 1px var(--line-2);
+  cursor: pointer;
+}
+.swatch:hover {
+  transform: scale(1.12);
+}

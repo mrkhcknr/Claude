@@ -305,8 +305,14 @@ export function TextField({ value, onCommit, placeholder, id, className = 'input
       onChange={(e) => setT(e.target.value)}
       onBlur={() => t !== value && onCommit(t)}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+        // stop the key here so it can't also press a button in a confirmation that the commit opens
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          (e.target as HTMLInputElement).blur();
+        }
         if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
           setT(value);
           (e.target as HTMLInputElement).blur();
         }

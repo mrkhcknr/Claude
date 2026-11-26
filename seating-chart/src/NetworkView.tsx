@@ -6,6 +6,7 @@ import { activeCount, allTags, clearFilters, guestMatcher, setFilters, useFilter
 import { REL_LABEL, REL_SHORT, groupTags, type Analysis } from './scoring';
 import { clamp, firstName, hueColor } from './util';
 import { Icon } from './ui';
+import { tagColor as tagColorFor } from './tags';
 import { SearchBox, FilterSheet } from './GuestPanel';
 
 type Brush = 'move' | RelationKind | 'erase' | 'lasso';
@@ -48,7 +49,7 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
   const matcher = useMemo(() => guestMatcher(project, filters, analysis.tableOf, analysis.discByGuest), [project, filters, analysis.tableOf]);
   const guests = useMemo(() => project.guests.filter((g) => (includeDeclined || g.rsvp !== 'no') && (!filters.hide || !matcher || matcher(g))), [project.guests, includeDeclined, filters.hide, matcher]);
   const tagList = useMemo(() => allTags(project), [project]);
-  const tagColor = useMemo(() => new Map(tagList.map((t, i) => [t.label.toLowerCase(), hueColor(i)])), [tagList]);
+  const tagColor = useMemo(() => new Map(tagList.map((t, i) => [t.label.toLowerCase(), tagColorFor(project, t.label, i)])), [tagList, project]);
   const tableIndex = useMemo(() => new Map(project.tables.map((t, i) => [t.id, i])), [project.tables]);
 
   // degree for "no ties" highlighting
@@ -443,7 +444,12 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
         <label className="check" style={{ fontSize: 12 }}>
           <input type="checkbox" checked={includeDeclined} onChange={(e) => setIncludeDeclined(e.target.checked)} /> Include declined
         </label>
-        <span className="label">Groups · drag a guest here</span>
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <span className="label">Groups · drag a guest here</span>
+          <button className="btn ghost sm" onClick={() => window.dispatchEvent(new Event('app:tags'))}>
+            Manage
+          </button>
+        </div>
         <div className="tags">
           {tagList.map((t) => (
             <button

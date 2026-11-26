@@ -156,6 +156,8 @@ export interface Settings {
   rules?: Partial<import('./rules').SeatingRules>;
   /** What seat colours mean on the plan. */
   colorBy: 'side' | 'meal' | 'group';
+  /** Custom colours per tag (lower-case tag → hex). */
+  tagColors?: Record<string, string>;
 }
 
 /** A venue floor plan (image or PDF page) shown under the layout for tracing and checking. */

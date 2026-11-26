@@ -73,6 +73,7 @@ const RULE_DOC = SLIDERS.flatMap((s) => s.items)
     '- apartHard (true|false): "never same table" ties are absolute.',
     '- balance ("even" | "full"): spread guests evenly, or fill tables and leave spares empty.',
     '- neighbours (true|false): order chairs so the most connected guests sit side by side.',
+    '- couplesSideBySide (true|false): couples and "next to" pairs get two adjacent chairs on the same side of a table.',
     '- specificGroups (true|false): small groups count for more than big catch-all groups.',
   ])
   .join('\n');

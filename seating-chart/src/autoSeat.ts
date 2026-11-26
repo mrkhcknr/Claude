@@ -1,5 +1,6 @@
 import type { Guest, Id, Project } from './types';
 import { buildAffinity, tableFit } from './scoring';
+import { joinedGroups, packSlots, pairCapacity, slotsOf } from './geometry';
 
 export interface AutoSeatOptions {
   /** keep: leave everyone already seated where they are; reseat: move anyone who isn't pinned */
@@ -31,9 +32,10 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
   const N = guests.length;
 
   const allowed = new Set(opt.tableIds ?? p.tables.map((t) => t.id));
-  const tables = p.tables.filter((t) => allowed.has(t.id) && !t.locked && t.seats > 0);
-  const T = tables.length;
-  const tIndex = new Map(tables.map((t, i) => [t.id, i]));
+  // tables pushed together end to end are seated as one long table
+  const groupsV = joinedGroups(p.tables.filter((t) => allowed.has(t.id) && !t.locked && t.seats > 0));
+  const T = groupsV.length;
+  const tIndex = new Map(groupsV.flatMap((g, i) => g.map((t) => [t.id, i] as [Id, number])));
 
   // fixed guests: seated at a locked/excluded table, pinned, or (keep mode) anyone seated
   const fixedAt = new Int32Array(N).fill(-1); // table index for fixed guests on a managed table
@@ -61,8 +63,9 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
   for (const [tid, arr] of Object.entries(p.seating)) for (const g of arr) if (g) current.set(g, tid);
   for (let i = 0; i < N; i++)
     for (let t = 0; t < T; t++) {
-      fit[i * T + t] = tableFit(guests[i], tables[t], p);
-      if (R.stability && current.get(guests[i].id) === tables[t].id) fit[i * T + t] += R.stability;
+      const g = groupsV[t];
+      fit[i * T + t] = g.reduce((s, tb) => s + tableFit(guests[i], tb, p), 0) / g.length;
+      if (R.stability && g.some((tb) => current.get(guests[i].id) === tb.id)) fit[i * T + t] += R.stability;
     }
 
   // ---- units: union-find on strong positive ties among movable guests
@@ -78,7 +81,8 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
       if (sameParty || beside) parent[find(i)] = find(j);
     }
 
-  const maxCap = Math.max(0, ...tables.map((t) => t.seats));
+  const groupSeats = groupsV.map((g) => g.reduce((s, t) => s + t.seats, 0));
+  const maxCap = Math.max(0, ...groupSeats);
   const unitMap = new Map<number, number[]>();
   for (let i = 0; i < N; i++) if (movable(i)) unitMap.set(find(i), [...(unitMap.get(find(i)) ?? []), i]);
   const units: number[][] = [];
@@ -90,15 +94,20 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
   }
 
   // ---- state
-  const cap = tables.map((t) => t.seats);
-  const members: number[][] = tables.map(() => []);
+  const cap = groupSeats;
+  const members: number[][] = groupsV.map(() => []);
   for (let i = 0; i < N; i++) if (fixedAt[i] >= 0) members[fixedAt[i]].push(i);
   const fixedCount = members.map((m) => m.length);
   const unitTable = new Int32Array(units.length).fill(-1);
 
   const totalToSeat = units.reduce((s, u) => s + u.length, 0) + fixedCount.reduce((a, b) => a + b, 0);
-  const target = T ? totalToSeat / T : 0;
+  // "spread evenly" compares how full each table is, so long joined rows and small tables are treated fairly
+  const fillRatio = totalToSeat / Math.max(1, groupSeats.reduce((a, b) => a + b, 0));
 
+  // how many two-person pairs each table can seat side by side (a 3-chair side holds one pair)
+  const pairSlots = groupsV.map((g) => pairCapacity(g));
+  const unitOf = new Int32Array(N).fill(-1);
+  units.forEach((u, k) => u.forEach((i) => (unitOf[i] = k)));
   const tied = new Uint8Array(64);
   function tableScore(t: number, mem: number[]) {
     let s = 0;
@@ -113,12 +122,27 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
       }
     }
     if (R.loner && n > 1 && n <= 64) for (let a = 0; a < n; a++) if (!tied[a]) s -= R.loner;
-    if (R.balance === 'even') s -= R.balanceStrength * (n - target) * (n - target);
+    if (R.couplesSideBySide) {
+      // count pairs needed by linked units at this table; penalise more than the table can seat side by side
+      const seen = new Set<number>();
+      let pairs = 0;
+      for (const i of mem) {
+        const u = unitOf[i];
+        if (u < 0 || seen.has(u)) continue;
+        seen.add(u);
+        pairs += Math.floor(units[u].length / 2);
+      }
+      if (pairs > pairSlots[t]) s -= 150 * (pairs - pairSlots[t]);
+    }
+    if (R.balance === 'even') {
+      const dev = n - fillRatio * cap[t];
+      s -= R.balanceStrength * dev * dev;
+    }
     else if (n > 0) s -= R.balanceStrength * (12 + 0.8 * (cap[t] - n));
     return s;
   }
 
-  const score = tables.map((_, t) => tableScore(t, members[t]));
+  const score = groupsV.map((_, t) => tableScore(t, members[t]));
   const total = () => score.reduce((a, b) => a + b, 0);
 
   // ---- greedy: biggest / most-connected units first
@@ -174,11 +198,19 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
         unitTable[k] = to;
       }
     } else {
-      // swap with a unit at `to`
+      // swap with one or more units at `to` (e.g. a couple for two singles) so table sizes still fit
       const cands = placedUnits.filter((q) => unitTable[q] === to);
       if (!cands.length) continue;
-      const q = cands[(Math.random() * cands.length) | 0];
-      const v = units[q];
+      const pick: number[] = [];
+      let size = 0;
+      for (let tries = 0; tries < 6 && size < u.length; tries++) {
+        const q = cands[(Math.random() * cands.length) | 0];
+        if (pick.includes(q) || size + units[q].length > Math.max(u.length, units[q].length)) continue;
+        pick.push(q);
+        size += units[q].length;
+      }
+      if (!pick.length) continue;
+      const v = pick.flatMap((q) => units[q]);
       if (members[from].length - u.length + v.length > cap[from] || members[to].length - v.length + u.length > cap[to]) continue;
       const mf = [...without(members[from], u), ...v],
         mt = [...without(members[to], v), ...u];
@@ -191,7 +223,7 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
         score[from] = sf;
         score[to] = st;
         unitTable[k] = to;
-        unitTable[q] = from;
+        for (const q of pick) unitTable[q] = from;
       }
     }
   }
@@ -200,27 +232,29 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
   const seating: Project['seating'] = structuredClone(p.seating);
   for (const t of p.tables) if (!seating[t.id]) seating[t.id] = Array(t.seats).fill(null);
   // clear non-fixed guests from managed tables
-  for (let t = 0; t < T; t++) {
-    const tid = tables[t].id;
-    seating[tid] = seating[tid].map((g) => (g && gIndex.has(g) && fixedAt[gIndex.get(g)!] === t ? g : null));
-  }
+  for (let t = 0; t < T; t++)
+    for (const tb of groupsV[t]) seating[tb.id] = seating[tb.id].map((g) => (g && gIndex.has(g) && fixedAt[gIndex.get(g)!] === t ? g : null));
   // remove moved guests from wherever they were (e.g. declined guests stay out)
   const placedSet = new Set<Id>();
   for (let t = 0; t < T; t++) {
-    const tid = tables[t].id;
-    const arr = seating[tid];
+    const slots = slotsOf(groupsV[t]);
+    const arr = slots.map((sl) => seating[sl.t][sl.s]);
     const newcomers = units
       .map((u, k) => ({ u, k }))
       .filter(({ k }) => unitTable[k] === t)
       .map(({ u }) => u);
-    const seq = R.neighbours ? orderUnits(newcomers.map((u) => orderWithin(u, W, N)), arr, W, N, gIndex) : newcomers.flat();
-    const free = arr.map((g, i) => (g ? -1 : i)).filter((i) => i >= 0);
-    const startAt = bestStart(arr);
-    free.sort((a, b) => ((a - startAt + arr.length) % arr.length) - ((b - startAt + arr.length) % arr.length));
-    seq.forEach((gi, k) => {
-      arr[free[k]] = guests[gi].id;
-      placedSet.add(guests[gi].id);
-    });
+    const ordered = R.neighbours ? orderUnits(newcomers.map((u) => orderWithin(u, W, N)), arr, W, N, gIndex) : newcomers;
+    // couples and other linked units go in first so each lands in one side-by-side stretch; singles fill around them
+    const groups = R.couplesSideBySide ? [...ordered.filter((u) => u.length > 1), ...ordered.filter((u) => u.length === 1)] : ordered.flat().map((g) => [g]);
+    const seatsFor = packSlots(slots, arr.map(Boolean), groups.map((u) => u.length));
+    groups.forEach((u, k) =>
+      u.forEach((gi, j) => {
+        const s = seatsFor[k][j];
+        if (s === undefined) return;
+        seating[slots[s].t][slots[s].s] = guests[gi].id;
+        placedSet.add(guests[gi].id);
+      }),
+    );
   }
   // guests not eligible (declined) on managed tables were already cleared above
 
@@ -228,23 +262,6 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
   if (unplaced.length) warnings.push(`${unplaced.length} guest(s) didn't fit — add tables or seats.`);
 
   return { seating, placed: placedSet.size, unplaced, warnings, before, after: total() };
-}
-
-/** Start filling right after the last occupied seat so newcomers form a contiguous run. */
-function bestStart(arr: (Id | null)[]) {
-  const n = arr.length;
-  let best = 0,
-    bestLen = -1;
-  for (let i = 0; i < n; i++) {
-    if (arr[i]) continue;
-    let len = 0;
-    while (len < n && !arr[(i + len) % n]) len++;
-    if (len > bestLen) {
-      bestLen = len;
-      best = i;
-    }
-  }
-  return best;
 }
 
 /** Order a unit's members so the strongest pairs (e.g. "next to") are adjacent. */
@@ -271,11 +288,11 @@ function orderUnits(units: number[][], arr: (Id | null)[], W: Float32Array, N: n
   // neighbours touch at the chain ends, so weigh the last member of one unit against the first of the next
   const join = (a: number[], b: number[]) => W[a[a.length - 1] * N + b[0]] * 2 + aff(a, b) * 0.25;
   const left = [...units];
-  const seq: number[] = [];
+  const seq: number[][] = [];
   // start with the unit most tied to existing occupants, else the biggest
   left.sort((a, b) => aff(b, anchor) - aff(a, anchor) || b.length - a.length);
   let cur = left.shift()!;
-  seq.push(...cur);
+  seq.push(cur);
   while (left.length) {
     let bi = 0,
       bs = -Infinity;
@@ -287,7 +304,7 @@ function orderUnits(units: number[][], arr: (Id | null)[], W: Float32Array, N: n
       }
     }
     cur = left.splice(bi, 1)[0];
-    seq.push(...cur);
+    seq.push(cur);
   }
   return seq;
 }

@@ -1,5 +1,5 @@
 import type { Guest, Id, Project, RelationKind, Table } from './types';
-import { clearanceIssues, nearestDoorDist, neighbours } from './geometry';
+import { clearanceIssues, joinedGroups, nearestDoorDist, slotsAdjacent } from './geometry';
 import { likelySame } from './util';
 import { tableName } from './store';
 import { rulesOf } from './rules';
@@ -116,6 +116,9 @@ export function analyse(p: Project) {
   const tableOf = new Map<Id, Id>();
   for (const [t, arr] of Object.entries(p.seating)) for (const g of arr) if (g) tableOf.set(g, t);
 
+  // tables pushed together count as one long table
+  const rowOf = new Map<Id, number>();
+  joinedGroups(p.tables).forEach((g, i) => g.forEach((t) => rowOf.set(t.id, i)));
   const reports = new Map<Id, TableReport>();
   for (const t of p.tables) {
     const guests = (p.seating[t.id] ?? []).filter((g): g is Id => !!g).map((g) => byId.get(g)!).filter(Boolean);
@@ -183,9 +186,26 @@ export function analyse(p: Project) {
   const parties = new Map<string, Guest[]>();
   for (const g of attending) if (g.party) parties.set(g.party, [...(parties.get(g.party) ?? []), g]);
   for (const members of parties.values()) {
-    const tabs = new Set(members.map((g) => tableOf.get(g.id)).filter(Boolean));
+    const tabs = new Set(members.map((g) => tableOf.get(g.id)).filter(Boolean).map((t) => rowOf.get(t!)));
     if (tabs.size > 1) issues.push({ level: 'warn', text: `Household split across tables: ${members.map((m) => m.name).join(', ')}`, guestIds: members.map((g) => g.id) });
   }
+  // couples (households of two) in the same table or row but not in side-by-side chairs
+  if (rulesOf(p.settings).couplesSideBySide) {
+    const seatAt = new Map<Id, number>();
+    for (const arr of Object.values(p.seating)) arr.forEach((g, i) => g && seatAt.set(g, i));
+    const pairsByParty = new Map<string, Guest[]>();
+    for (const g of attending) if (g.party) pairsByParty.set(g.party, [...(pairsByParty.get(g.party) ?? []), g]);
+    for (const m of pairsByParty.values()) {
+      if (m.length !== 2) continue;
+      const ta = tableOf.get(m[0].id),
+        tb = tableOf.get(m[1].id);
+      if (!ta || !tb || rowOf.get(ta) !== rowOf.get(tb)) continue;
+      const t = p.tables.find((x) => x.id === ta)!;
+      if (!slotsAdjacent(p.tables, { t: ta, s: seatAt.get(m[0].id)! }, { t: tb, s: seatAt.get(m[1].id)! }))
+        issues.push({ level: 'warn', text: `${m[0].name} & ${m[1].name} are at ${tableName(t)} but not side by side`, guestIds: [m[0].id, m[1].id], tableId: t.id });
+    }
+  }
+
   // "same table" / "next to" relations that aren't honoured
   const seatOf = new Map<Id, number>();
   for (const arr of Object.values(p.seating)) arr.forEach((g, i) => g && seatOf.set(g, i));
@@ -196,12 +216,10 @@ export function analyse(p: Project) {
     if (!ta || !tb) continue;
     const a = byId.get(r.a)!,
       b = byId.get(r.b)!;
-    if (ta !== tb) issues.push({ level: 'warn', text: `${a.name} & ${b.name} should ${r.kind === 'beside' ? 'sit next to each other' : 'share a table'} but are at different tables`, guestIds: [a.id, b.id] });
+    if (rowOf.get(ta) !== rowOf.get(tb)) issues.push({ level: 'warn', text: `${a.name} & ${b.name} should ${r.kind === 'beside' ? 'sit next to each other' : 'share a table'} but are at different tables`, guestIds: [a.id, b.id] });
     else if (r.kind === 'beside') {
       const t = p.tables.find((x) => x.id === ta);
-      const sa = seatOf.get(r.a)!,
-        sb = seatOf.get(r.b)!;
-      if (t && !neighbours(t).some(([i, j]) => (i === sa && j === sb) || (i === sb && j === sa)))
+      if (t && !slotsAdjacent(p.tables, { t: ta, s: seatOf.get(r.a)! }, { t: tb, s: seatOf.get(r.b)! }))
         issues.push({ level: 'warn', text: `${a.name} & ${b.name} are at ${tableName(t)} but not next to each other`, guestIds: [a.id, b.id], tableId: t.id });
     }
   }

@@ -25,7 +25,8 @@ import {
 } from './store';
 import { CHAIR_R, isCircular, projectBounds, rotate, seatLocal, snapToWall, tableFootprint, toWorld, type Pt } from './geometry';
 import { useDrag, startGuestDrag } from './dnd';
-import { useFilters, guestMatcher } from './filters';
+import { useFilters, guestMatcher, allTags } from './filters';
+import { tagColor as tagColorFor } from './tags';
 import { buildAffinity, groupTags, type Analysis } from './scoring';
 import { clamp, firstName, fmtLen, hueColor, initials, snapTo, uid } from './util';
 import { Icon, Menu, MenuItem, NumField } from './ui';
@@ -1283,6 +1284,7 @@ export function seatColorFn(p: Project) {
   const s = p.settings;
   const keys = new Map<string, number>();
   const keyOf = (g: Guest) => (s.colorBy === 'meal' ? g.meal || '' : groupTags(g)[0] || '');
+  if (s.colorBy === 'group') allTags(p).forEach((t, i) => keys.set(t.label.toLowerCase(), i));
   for (const g of p.guests) {
     const k = keyOf(g);
     if (k && !keys.has(k)) keys.set(k, keys.size);
@@ -1290,7 +1292,8 @@ export function seatColorFn(p: Project) {
   return (g: Guest) => {
     if (s.colorBy === 'side') return g.side === 'partner1' ? 'var(--p1)' : g.side === 'partner2' ? 'var(--p2)' : g.side === 'both' ? 'var(--both)' : 'var(--none)';
     const k = keyOf(g);
-    return k ? hueColor(keys.get(k)!) : 'var(--none)';
+    if (!k) return 'var(--none)';
+    return s.colorBy === 'group' ? tagColorFor(p, k, keys.get(k)!) : hueColor(keys.get(k)!);
   };
 }
 

@@ -60,12 +60,157 @@ export function seatLocal(t: Table): Pt[] {
 export const seatWorld = (t: Table) => seatLocal(t).map((p) => toWorld(t, p));
 
 /** Pairs of seat indices that are next to each other. */
+/** One chair: which table, which seat, and where it is in the room. */
+export interface Slot {
+  t: string;
+  s: number;
+  x: number;
+  y: number;
+}
+
+export function slotsOf(ts: Table[]): Slot[] {
+  return ts.flatMap((t) => seatWorld(t).map((p, s) => ({ t: t.id, s, x: p.x, y: p.y })));
+}
+
+/**
+ * Pairs of chairs that are truly side by side: same side of a table (or the next table in a
+ * pushed-together row), or next to each other around a round table. Corners and ends don't count.
+ */
+function slotNeighbours(slots: Slot[]): [number, number][] {
+  const d = (i: number, j: number) => Math.hypot(slots[i].x - slots[j].x, slots[i].y - slots[j].y);
+  let nn = Infinity;
+  for (let i = 0; i < slots.length; i++) for (let j = i + 1; j < slots.length; j++) if (slots[i].t === slots[j].t) nn = Math.min(nn, d(i, j));
+  if (!Number.isFinite(nn)) return [];
+  const lim = nn * 1.2;
+  const out: [number, number][] = [];
+  for (let i = 0; i < slots.length; i++) for (let j = i + 1; j < slots.length; j++) if (d(i, j) <= lim) out.push([i, j]);
+  return out;
+}
+
+/** Walk side-by-side chairs into runs (a side of a table or row; a whole round table is one ring). */
+function slotRuns(slots: Slot[]): { idx: number[]; cyclic: boolean }[] {
+  const n = slots.length;
+  const adj = Array.from({ length: n }, () => [] as number[]);
+  for (const [a, b] of slotNeighbours(slots)) {
+    adj[a].push(b);
+    adj[b].push(a);
+  }
+  const seen = new Set<number>();
+  const walk = (start: number) => {
+    const out = [start];
+    seen.add(start);
+    let cur = start;
+    for (;;) {
+      const next = adj[cur].find((x) => !seen.has(x));
+      if (next === undefined) break;
+      out.push(next);
+      seen.add(next);
+      cur = next;
+    }
+    return out;
+  };
+  const runs: { idx: number[]; cyclic: boolean }[] = [];
+  for (let i = 0; i < n; i++) if (!seen.has(i) && adj[i].length <= 1) runs.push({ idx: walk(i), cyclic: false });
+  for (let i = 0; i < n; i++) if (!seen.has(i)) runs.push({ idx: walk(i), cyclic: true });
+  return runs;
+}
+
 export function neighbours(t: Table): [number, number][] {
-  const n = t.seats;
-  const pairs: [number, number][] = [];
-  for (let i = 0; i < n - 1; i++) pairs.push([i, i + 1]);
-  if (isCircular(t) && n > 2) pairs.push([n - 1, 0]);
-  return pairs;
+  return slotNeighbours(slotsOf([t]));
+}
+export function seatRuns(t: Table): { seats: number[]; cyclic: boolean }[] {
+  return slotRuns(slotsOf([t])).map((r) => ({ seats: r.idx, cyclic: r.cyclic }));
+}
+/** How many two-person pairs these tables can seat side by side. */
+export function pairCapacity(ts: Table[]) {
+  return slotRuns(slotsOf(ts)).reduce((s, r) => s + Math.floor(r.idx.length / 2), 0);
+}
+
+/** Are two chairs (anywhere in the room) side by side? */
+export function slotsAdjacent(tables: Table[], a: { t: string; s: number }, b: { t: string; s: number }) {
+  const group = joinedGroups(tables).find((g) => g.some((t) => t.id === a.t)) ?? [];
+  if (!group.some((t) => t.id === b.t)) return false;
+  const slots = slotsOf(group);
+  const ia = slots.findIndex((x) => x.t === a.t && x.s === a.s),
+    ib = slots.findIndex((x) => x.t === b.t && x.s === b.s);
+  return slotNeighbours(slots).some(([i, j]) => (i === ia && j === ib) || (i === ib && j === ia));
+}
+
+/**
+ * Choose chairs for groups so each group sits in consecutive side-by-side chairs where possible.
+ * Returns indices into `slots` per group. A group that fits nowhere whole is split.
+ */
+export function packSlots(slots: Slot[], occupied: boolean[], groups: number[], prefer?: number): number[][] {
+  const stretches: number[][] = [];
+  for (const r of slotRuns(slots)) {
+    const s = r.idx;
+    if (r.cyclic && s.every((i) => !occupied[i])) {
+      stretches.push([...s]);
+      continue;
+    }
+    let order = s;
+    if (r.cyclic) {
+      const k = s.findIndex((i) => occupied[i]);
+      order = [...s.slice(k), ...s.slice(0, k)];
+    }
+    let cur: number[] = [];
+    for (const i of order) {
+      if (occupied[i]) {
+        if (cur.length) stretches.push(cur);
+        cur = [];
+      } else cur.push(i);
+    }
+    if (cur.length) stretches.push(cur);
+  }
+  if (prefer !== undefined) {
+    const k = stretches.findIndex((st) => st.includes(prefer));
+    if (k >= 0) {
+      const st = stretches.splice(k, 1)[0];
+      const at = st.indexOf(prefer);
+      stretches.unshift(st.slice(at), ...(at > 0 ? [st.slice(0, at)] : []));
+    }
+  }
+  const out: number[][] = [];
+  for (const size of groups) {
+    if (size <= 0) {
+      out.push([]);
+      continue;
+    }
+    // keep filling the current stretch while the group fits; else the tightest stretch that holds it
+    const st = stretches[0]?.length >= size ? stretches[0] : stretches.filter((x) => x.length >= size).sort((a, b) => a.length - b.length)[0];
+    if (st) out.push(st.splice(0, size));
+    else {
+      const got: number[] = [];
+      for (const x of [...stretches].sort((a, b) => b.length - a.length)) {
+        if (got.length >= size) break;
+        got.push(...x.splice(0, size - got.length));
+      }
+      out.push(got);
+    }
+    for (let i = stretches.length - 1; i >= 0; i--) if (!stretches[i].length) stretches.splice(i, 1);
+  }
+  return out;
+}
+
+/** Single-table version: occupied/groups/result are by seat index. */
+export function packSeats(t: Table, occupied: boolean[], groups: number[], prefer?: number): number[][] {
+  return packSlots(slotsOf([t]), occupied, groups, prefer);
+}
+
+/** Tables pushed together end to end form one long table for seating purposes. */
+export function joinedGroups(tables: Table[]): Table[][] {
+  const parent = tables.map((_, i) => i);
+  const find = (x: number): number => (parent[x] === x ? x : (parent[x] = find(parent[x])));
+  for (let i = 0; i < tables.length; i++)
+    for (let j = i + 1; j < tables.length; j++) {
+      const a = tables[i],
+        b = tables[j];
+      if (Math.hypot(a.x - b.x, a.y - b.y) > Math.max(a.w, a.h) + Math.max(b.w, b.h)) continue;
+      if (joined(a, b)) parent[find(i)] = find(j);
+    }
+  const m = new Map<number, Table[]>();
+  tables.forEach((t, i) => m.set(find(i), [...(m.get(find(i)) ?? []), t]));
+  return [...m.values()];
 }
 
 // ---------- polygons for clearance checks ----------

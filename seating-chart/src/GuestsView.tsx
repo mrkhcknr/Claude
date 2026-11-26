@@ -160,6 +160,9 @@ export function GuestsView({ analysis }: { analysis: Analysis }) {
               </>
             )}
           </Menu>
+          <button className="btn" onClick={() => window.dispatchEvent(new Event('app:tags'))}>
+            <Icon name="flower" size="sm" /> Manage tags
+          </button>
           <button className="btn" onClick={exportView}>
             <Icon name="download" size="sm" /> Export view
           </button>

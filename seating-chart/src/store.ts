@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { produce, type Draft } from 'immer';
 import type { Guest, Id, Project, RelationKind, RoomElement, Selection, Table, TableShape, Tool, ZoneKind } from './types';
 import { uid } from './util';
+import { packSeats } from './geometry';
 import { ask } from './ui';
 
 export const STORAGE_KEY = 'wedding-seating:project:v1';
@@ -330,40 +331,22 @@ export function seatGuest(guestId: Id, tableId: Id, seat: number) {
   });
 }
 
-/** Seat several guests at a table, contiguously if possible, starting near `startSeat`. Returns number seated. */
+/** Seat several guests at a table in side-by-side chairs where possible, starting near `startSeat`. Returns number seated. */
 export function seatAtTable(guestIds: Id[], tableId: Id, startSeat?: number): number {
   const { project } = get();
   const arr = project.seating[tableId];
-  if (!arr) return 0;
+  const table = project.tables.find((t) => t.id === tableId);
+  if (!arr || !table) return 0;
   const moving = new Set(guestIds);
-  const free = arr.map((g, i) => (!g || moving.has(g) ? i : -1)).filter((i) => i >= 0);
-  if (!free.length) return 0;
-  // choose a start: requested seat, else the beginning of the longest run of free seats
-  const n = arr.length;
-  const isFree = (i: number) => !arr[i] || moving.has(arr[i]!);
-  let start = startSeat ?? -1;
-  if (start < 0 || !isFree(start)) {
-    let best = free[0],
-      bestLen = 0;
-    for (const i of free) {
-      let len = 0;
-      while (len < n && isFree((i + len) % n)) len++;
-      if (len > bestLen) {
-        best = i;
-        bestLen = len;
-      }
-    }
-    start = best;
-  }
-  const order: number[] = [];
-  for (let k = 0; k < n; k++) {
-    const i = (start + k) % n;
-    if (isFree(i)) order.push(i);
-  }
-  const placed = guestIds.slice(0, order.length);
+  const occupied = arr.map((g) => !!g && !moving.has(g));
+  const free = occupied.filter((o) => !o).length;
+  if (!free) return 0;
+  const n = Math.min(free, guestIds.length);
+  const [seats] = packSeats(table, occupied, [n], startSeat !== undefined && !occupied[startSeat] ? startSeat : undefined);
+  const placed = guestIds.slice(0, seats.length);
   update((d) => {
     removeEverywhere(d, new Set(placed));
-    placed.forEach((g, k) => (d.seating[tableId][order[k]] = g));
+    placed.forEach((g, k) => (d.seating[tableId][seats[k]] = g));
   });
   return placed.length;
 }
@@ -548,7 +531,9 @@ export function duplicateSelection() {
 /** Renumber "Table N" tables front-to-back, left-to-right. */
 export function renumberTables() {
   const { project } = get();
-  const numbered = project.tables.filter((t) => t.shape !== 'head' && (/^(Table\s*)?\d+$/i.test(t.label.trim()) || !t.label.trim()));
+  const isHead = (t: Table) => t.shape === 'head' || /^head/i.test(t.label.trim());
+  const heads = project.tables.filter(isHead).sort((a, b) => a.y - b.y || a.x - b.x);
+  const numbered = project.tables.filter((t) => !isHead(t) && (/^(Table\s*)?\d+$/i.test(t.label.trim()) || !t.label.trim()));
   const sorted = [...numbered].sort((a, b) => a.y - b.y);
   const rows: Table[][] = [];
   for (const t of sorted) {
@@ -557,13 +542,16 @@ export function renumberTables() {
     else rows.push([t]);
   }
   const order = rows.flatMap((r) => r.sort((a, b) => a.x - b.x)).map((t) => t.id);
+  // head tables take the first numbers
   update((d) => {
     for (const t of d.tables) {
+      const h = heads.findIndex((x) => x.id === t.id);
+      if (h >= 0) t.label = `Head Table ${h + 1}`;
       const i = order.indexOf(t.id);
-      if (i >= 0) t.label = `Table ${i + 1}`;
+      if (i >= 0) t.label = `Table ${heads.length + i + 1}`;
     }
   });
-  toast(`Renumbered ${order.length} tables`, true);
+  toast(`Renumbered ${heads.length + order.length} tables, head tables first`, true);
 }
 
 // ---------- elements ----------

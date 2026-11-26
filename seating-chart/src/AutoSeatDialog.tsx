@@ -153,6 +153,9 @@ function RulesTab() {
             <input type="checkbox" className="switch" checked={R.apartHard} onChange={(e) => set({ apartHard: e.target.checked })} /> "Never same table" is absolute
           </label>
           <label className="check">
+            <input type="checkbox" className="switch" checked={R.couplesSideBySide} onChange={(e) => set({ couplesSideBySide: e.target.checked })} /> Seat couples side by side whenever possible
+          </label>
+          <label className="check">
             <input type="checkbox" className="switch" checked={R.neighbours} onChange={(e) => set({ neighbours: e.target.checked })} /> Seat the closest pairs side by side
           </label>
           <label className="check">
