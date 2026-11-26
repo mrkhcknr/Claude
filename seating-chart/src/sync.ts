@@ -6,7 +6,7 @@
  *   meta/project        { name, settings }
  *   guests/{id}         Guest (no contact details are ever stored)
  *   relations/{id}      Relation
- *   tables/{id}         Table + { seats: (guestId|null)[] }
+ *   tables/{id}         Table + { seating: (guestId|null)[] }   (seats stays the seat count)
  *   elements/{id}       RoomElement
  */
 import { create } from 'zustand';
@@ -163,8 +163,13 @@ function applyRemote(docs: Record<Coll, Map<string, Record<string, unknown>>>) {
   };
   const seating: Project['seating'] = {};
   const tables = keep<Table>(cur.tables, docs.tables, 'tables', (b) => {
-    const { seats, ...t } = b as unknown as Table & { seats?: (string | null)[] };
-    seating[t.id] = seats ?? [];
+    const raw = b as unknown as Omit<Table, 'seats'> & { seats?: number | (string | null)[]; seating?: (string | null)[] };
+    // older documents stored the seat list under "seats", which hid the seat count
+    const legacy = Array.isArray(raw.seats) ? raw.seats : undefined;
+    const { seating: list, seats: _s, ...rest } = raw;
+    void _s;
+    const t = { ...rest, seats: typeof raw.seats === 'number' ? raw.seats : (list ?? legacy ?? []).length || 8 } as Table;
+    seating[t.id] = list ?? legacy ?? [];
     return t as Table;
   });
   for (const t of tables) if (!seating[t.id]) seating[t.id] = cur.seating[t.id] ?? [];
@@ -263,7 +268,7 @@ function diffAndQueue(a: Project, b: Project) {
   if (a.tables !== b.tables || a.seating !== b.seating) {
     const before = new Map(a.tables.map((t) => [t.id, t]));
     for (const t of b.tables) {
-      if (before.get(t.id) !== t || a.seating[t.id] !== b.seating[t.id]) queue(`tables/${t.id}`, { ...strip(t), seats: b.seating[t.id] ?? [] });
+      if (before.get(t.id) !== t || a.seating[t.id] !== b.seating[t.id]) queue(`tables/${t.id}`, { ...strip(t), seating: b.seating[t.id] ?? [] });
       before.delete(t.id);
     }
     for (const id of before.keys()) queue(`tables/${id}`, null);
