@@ -75,6 +75,7 @@ export function migrate(p: Partial<Project>): Project {
     relations: p.relations ?? [],
     tables: (p.tables ?? []).map((t) => ({ ...tableDefaults(), ...t })),
     elements: p.elements ?? [],
+    refs: p.refs ?? [],
     seating: p.seating ?? {},
     version: 1,
   };
@@ -591,6 +592,26 @@ export function deleteElements(ids: Id[]) {
   set({ selection: null });
 }
 
+/** Scale the room (walls, columns, doors, areas, table positions and plan overlays) about a point. Table sizes stay real. */
+export function scaleRoom(k: number, o: { x: number; y: number }) {
+  if (!(k > 0) || k === 1) return;
+  const sx = (v: number) => o.x + (v - o.x) * k,
+    sy = (v: number) => o.y + (v - o.y) * k;
+  update((d) => {
+    for (const e of d.elements) {
+      if (e.kind === 'wall') Object.assign(e, { x1: sx(e.x1), y1: sy(e.y1), x2: sx(e.x2), y2: sy(e.y2) });
+      else {
+        e.x = sx(e.x);
+        e.y = sy(e.y);
+        if (e.kind === 'zone') Object.assign(e, { w: e.w * k, h: e.h * k });
+      }
+    }
+    for (const t of d.tables) Object.assign(t, { x: sx(t.x), y: sy(t.y) });
+    for (const r of d.refs ?? []) Object.assign(r, { x: sx(r.x), y: sy(r.y), scale: r.scale * k });
+  });
+  toast(`Room rescaled ×${k.toFixed(3)}`, true);
+}
+
 export function makeRectRoom(w: number, h: number, thickness = 0.75) {
   const pts = [
     [0, 0],
@@ -612,6 +633,14 @@ export function deleteSelection() {
   if (!selection) return;
   if (selection.type === 'table') deleteTables(selection.ids);
   else if (selection.type === 'element') deleteElements(selection.ids);
+  else if (selection.type === 'ref') {
+    const ids = selection.ids;
+    void ask('Remove this floor plan?', { detail: 'Only the reference image is removed; your layout stays. You can undo this.', ok: 'Remove', danger: true }).then((ok) => {
+      if (!ok) return;
+      update((d) => void (d.refs = (d.refs ?? []).filter((r) => !ids.includes(r.id))));
+      set({ selection: null });
+    });
+  }
   else if (selection.type === 'guest') {
     void ask(`Delete ${selection.ids.length === 1 ? 'this guest' : `${selection.ids.length} guests`}?`, {
       detail: 'They are removed from the guest list, their seats and the social graph. You can undo this.',

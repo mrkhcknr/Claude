@@ -489,6 +489,15 @@ export function OpenFileDialog({ open, onClose }: { open: boolean; onClose: () =
     window.dispatchEvent(new Event('plan:fit'));
     onClose();
   }
+  function useRoomOnly() {
+    if (!file) return;
+    update((d) => {
+      d.elements = file.elements;
+    });
+    toast(`Replaced the room with ${file.elements.length} walls, columns, doors and areas. Your tables and guests are unchanged.`, true);
+    window.dispatchEvent(new Event('plan:fit'));
+    onClose();
+  }
   function useAll() {
     if (!file) return;
     loadProject(file);
@@ -512,9 +521,14 @@ export function OpenFileDialog({ open, onClose }: { open: boolean; onClose: () =
             </span>
           </div>
           <div className="row">
-            <button className="btn primary" onClick={useLayout}>
-              Use its room & tables {project.guests.length ? '(keep my guests)' : ''}
+            <button className={`btn ${file.tables.length ? '' : 'primary'}`} onClick={useRoomOnly}>
+              Use its room only (keep my tables)
             </button>
+            {file.tables.length > 0 && (
+              <button className="btn primary" onClick={useLayout}>
+                Use its room & tables {project.guests.length ? '(keep my guests)' : ''}
+              </button>
+            )}
             {file.guests.length > 0 && (
               <button
                 className="btn"

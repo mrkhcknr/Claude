@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { Guest, Id, Opening, Project, RoomElement, Table, Wall, Zone } from './types';
+import type { Guest, Id, Opening, Project, RefLayer, RoomElement, Table, Wall, Zone } from './types';
+import { addReferenceFile, alignTwoPoints, refToWorld, scaleFromLength, updateRef, worldToRef } from './refs';
+import { toast } from './store';
 import {
   addElement,
   addTable,
@@ -39,7 +41,9 @@ type Gesture =
   | { t: 'move'; start: Pt; tables: Map<Id, Pt>; els: Map<Id, RoomElement>; moved: boolean }
   | { t: 'marquee'; start: Pt; cur: Pt; add: boolean }
   | { t: 'handle'; h: Handle; id: Id; isTable: boolean; orig: Table | RoomElement; start: Pt }
-  | { t: 'pinch' };
+  | { t: 'pinch' }
+  | { t: 'refMove'; id: Id; start: Pt; orig: Pt; moved: boolean }
+  | { t: 'refHandle'; id: Id; kind: 'scale' | 'rotate'; orig: RefLayer };
 
 const MIN_SCALE = 2,
   MAX_SCALE = 80;
@@ -60,6 +64,8 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
   const [cursor, setCursor] = useState<Pt | null>(null);
   const [wallDraft, setWallDraft] = useState<Pt[]>([]);
   const [spaceDown, setSpaceDown] = useState(false);
+  const [refPts, setRefPts] = useState<Pt[]>([]);
+  const [lenInput, setLenInput] = useState('');
   const pointers = useRef(new Map<number, Pt>());
   const pinchRef = useRef<{ d: number; c: Pt; cam: Camera } | null>(null);
   const s = project.settings;
@@ -91,6 +97,7 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
       if ((e.key === 'Escape' || e.key === 'Enter') && wallDraft.length) {
         setWallDraft([]);
       }
+      if (e.key === 'Escape') setRefPts([]);
     };
     const ku = (e: KeyboardEvent) => e.code === 'Space' && setSpaceDown(false);
     window.addEventListener('keydown', kd);
@@ -102,6 +109,8 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
   }, [wallDraft.length]);
   useEffect(() => {
     if (tool !== 'wall') setWallDraft([]);
+    setRefPts([]);
+    setLenInput('');
   }, [tool]);
 
   const toWorldPt = (cx: number, cy: number): Pt => {
@@ -192,6 +201,43 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
       return;
     }
     if (e.button !== 0) return;
+
+    // reference-plan tools
+    const activeRef = selection?.type === 'ref' ? project.refs?.find((r) => r.id === selection.ids[0]) : undefined;
+    if ((tool === 'refScale' || tool === 'refAlign') && activeRef) {
+      const onPlanStep = tool === 'refAlign' && refPts.length % 2 === 1;
+      let q = p;
+      if (onPlanStep) q = snapEndpoint(project, p, 12 * k) ?? snapTableCenter(project, p, 12 * k) ?? p;
+      if (tool === 'refScale' && refPts.length >= 2) return;
+      const pts = [...refPts, q];
+      setRefPts(pts);
+      if (tool === 'refAlign' && pts.length === 4) {
+        const a = worldToRef(activeRef, pts[0]),
+          b = worldToRef(activeRef, pts[2]);
+        const patch = alignTwoPoints(a, b, pts[1], pts[3]);
+        if (patch) {
+          updateRef(activeRef.id, patch);
+          toast('Plan aligned. Fine-tune by dragging, or match two other points.', true);
+        } else toast('Those points are too close together. Try two points far apart.');
+        setRefPts([]);
+        setTool('select');
+      }
+      return;
+    }
+    const rh = target.closest('[data-ref-handle]') as SVGElement | null;
+    if (rh && activeRef) {
+      e.stopPropagation();
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
+      checkpoint();
+      setG({ t: 'refHandle', id: activeRef.id, kind: rh.dataset.refHandle as 'scale' | 'rotate', orig: activeRef });
+      return;
+    }
+    const rEl = target.closest('[data-ref-id]') as SVGElement | null;
+    if (rEl && activeRef && rEl.dataset.refId === activeRef.id && !activeRef.locked && tool === 'select') {
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
+      setG({ t: 'refMove', id: activeRef.id, start: p, orig: { x: activeRef.x, y: activeRef.y }, moved: false });
+      return;
+    }
 
     // placement tools
     if (tool === 'wall') {
@@ -343,6 +389,35 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
       return;
     }
     if (cur.t === 'handle') applyHandle(cur, p, alt, e.shiftKey);
+    if (cur.t === 'refMove') {
+      const dx = p.x - cur.start.x,
+        dy = p.y - cur.start.y;
+      if (!cur.moved) {
+        if (Math.hypot(dx, dy) * camera.scale < 3) return;
+        checkpoint();
+        g.current = { ...cur, moved: true };
+      }
+      updateRef(cur.id, { x: cur.orig.x + dx, y: cur.orig.y + dy }, false);
+    }
+    if (cur.t === 'refHandle') {
+      const o = cur.orig;
+      if (cur.kind === 'scale') {
+        const diagImg = Math.hypot(o.imgW, o.imgH);
+        const tl = { x: o.x, y: o.y };
+        const scale = Math.max(1e-4, Math.hypot(p.x - tl.x, p.y - tl.y) / diagImg);
+        updateRef(cur.id, { scale }, false);
+      } else {
+        const c = refToWorld(o, { x: o.imgW / 2, y: o.imgH / 2 });
+        let ang = (Math.atan2(p.y - c.y, p.x - c.x) * 180) / Math.PI + 90;
+        if (!alt) ang = Math.round(ang * 2) / 2;
+        const rot = ((ang % 360) + 360) % 360;
+        // rotate about the image centre
+        const rr = (rot * Math.PI) / 180;
+        const hx = (o.imgW / 2) * o.scale,
+          hy = (o.imgH / 2) * o.scale;
+        updateRef(cur.id, { rotation: rot, x: c.x - (hx * Math.cos(rr) - hy * Math.sin(rr)), y: c.y - (hx * Math.sin(rr) + hy * Math.cos(rr)) }, false);
+      }
+    }
   }
 
   function onPointerUp(e: React.PointerEvent<SVGSVGElement>) {
@@ -498,9 +573,28 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
         <g transform={`scale(${camera.scale}) translate(${-camera.x} ${-camera.y})`}>
           <rect x={Math.floor(view.x0 / major) * major} y={Math.floor(view.y0 / major) * major} width={view.x1 - view.x0 + major * 2} height={view.y1 - view.y0 + major * 2} fill="url(#g-major)" />
 
+          {/* reference floor plans */}
+          {(project.refs ?? []).filter((r) => r.visible).map((r) => {
+            const sel = selection?.type === 'ref' && selection.ids[0] === r.id;
+            return (
+              <g key={r.id} transform={`translate(${r.x} ${r.y}) rotate(${r.rotation}) scale(${r.scale})`}>
+                <image
+                  href={r.src}
+                  width={r.imgW}
+                  height={r.imgH}
+                  preserveAspectRatio="none"
+                  opacity={r.opacity}
+                  data-ref-id={r.id}
+                  style={{ pointerEvents: sel && !r.locked && tool === 'select' ? 'auto' : 'none', cursor: sel && !r.locked ? 'move' : undefined }}
+                />
+                {sel && <rect width={r.imgW} height={r.imgH} fill="none" stroke="var(--accent)" strokeWidth={1.5 / (r.scale * camera.scale)} strokeDasharray={`${6 / (r.scale * camera.scale)} ${4 / (r.scale * camera.scale)}`} pointerEvents="none" />}
+              </g>
+            );
+          })}
+
           {/* zones under everything */}
           {project.elements.filter((x): x is Zone => x.kind === 'zone').map((z) => (
-            <g key={z.id} className={`zone ${z.zone} ${selIds.has(z.id) ? 'sel' : ''}`} data-el-id={z.id} transform={`translate(${z.x} ${z.y}) rotate(${z.rotation})`} style={{ cursor: 'move' }}>
+            <g key={z.id} className={`zone z-${z.zone} ${selIds.has(z.id) ? 'sel' : ''}`} data-el-id={z.id} transform={`translate(${z.x} ${z.y}) rotate(${z.rotation})`} style={{ cursor: 'move' }}>
               <rect x={-z.w / 2} y={-z.h / 2} width={z.w} height={z.h} rx={0.4} strokeWidth={1.2 * k} style={{ strokeDasharray: `${5 * k} ${4 * k}` }} />
               <text textAnchor="middle" dominantBaseline="central" transform={`rotate(${-z.rotation})`} style={{ fontSize: Math.max(0.9, 11 * k) }}>
                 {z.label}
@@ -662,6 +756,29 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
           {/* live dimension readout while resizing */}
           {gesture?.t === 'handle' && (selTable || selEl) && <DimLabel item={(selTable ?? selEl)!} k={k} units={s} />}
 
+          {selection?.type === 'ref' && (() => {
+            const r = project.refs?.find((x) => x.id === selection.ids[0]);
+            if (!r || r.locked || !r.visible) return null;
+            const br = refToWorld(r, { x: r.imgW, y: r.imgH });
+            const top = refToWorld(r, { x: r.imgW / 2, y: -40 / (r.scale * camera.scale) });
+            return (
+              <g>
+                <rect className="handle" data-ref-handle="scale" x={br.x - 6 * k} y={br.y - 6 * k} width={12 * k} height={12 * k} rx={2 * k} strokeWidth={1.5 * k} style={{ cursor: 'nwse-resize' }} />
+                <circle className="handle rot" data-ref-handle="rotate" cx={top.x} cy={top.y} r={6 * k} strokeWidth={1.5 * k} />
+              </g>
+            );
+          })()}
+          {refPts.map((q, i) => (
+            <g key={i} pointerEvents="none">
+              <circle cx={q.x} cy={q.y} r={7 * k} fill="none" stroke={i % 2 && tool === 'refAlign' ? 'var(--bloom)' : 'var(--accent)'} strokeWidth={2 * k} />
+              <circle cx={q.x} cy={q.y} r={1.5 * k} fill={i % 2 && tool === 'refAlign' ? 'var(--bloom)' : 'var(--accent)'} />
+              <text x={q.x + 9 * k} y={q.y - 9 * k} className="dim-label" style={{ fontSize: 11 * k }}>
+                {tool === 'refAlign' ? (i < 2 ? 'A' : 'B') + (i % 2 ? ' on layout' : ' on plan') : i + 1}
+              </text>
+            </g>
+          ))}
+          {tool === 'refScale' && refPts.length === 2 && <line x1={refPts[0].x} y1={refPts[0].y} x2={refPts[1].x} y2={refPts[1].y} className="draft" strokeWidth={2 * k} />}
+
           {/* marquee */}
           {gesture?.t === 'marquee' && (
             <rect className="marquee" x={Math.min(gesture.start.x, gesture.cur.x)} y={Math.min(gesture.start.y, gesture.cur.y)} width={Math.abs(gesture.cur.x - gesture.start.x)} height={Math.abs(gesture.cur.y - gesture.start.y)} strokeWidth={k} />
@@ -692,6 +809,39 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
       {tool === 'wall' && <div className="hint">Click to place wall corners · Shift keeps 45° angles · Enter or double-click to finish</div>}
       {(tool === 'door' || tool === 'window') && <div className="hint">Click on a wall to place a {tool}</div>}
       {tool === 'column' && <div className="hint">Click to place a column · hold Shift to place several</div>}
+      {tool === 'refAlign' && (
+        <div className="hint">
+          {['1 of 4 · Click a clear point on the floor plan image, like a room corner', '2 of 4 · Click where that point is on your layout (snaps to wall corners)', '3 of 4 · Click a second point on the plan image, far from the first', '4 of 4 · Click where that point is on your layout'][refPts.length]} · Esc to cancel
+        </div>
+      )}
+      {tool === 'refScale' && refPts.length < 2 && <div className="hint">Click both ends of something on the plan whose real length you know · Esc to cancel</div>}
+      {tool === 'refScale' && refPts.length === 2 && (
+        <form
+          className="ctx-bar"
+          style={{ left: '50%', top: 90, translate: '-50% 0', padding: '6px 6px 6px 12px', gap: 8 }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onSubmit={(e) => {
+            e.preventDefault();
+            const r = selection?.type === 'ref' ? project.refs?.find((x) => x.id === selection.ids[0]) : undefined;
+            const v = parseFloat(lenInput);
+            if (!r || !(v > 0)) return;
+            const ft = s.units === 'm' ? v * 3.28084 : v;
+            const patch = scaleFromLength(r, refPts[0], refPts[1], ft);
+            if (patch) updateRef(r.id, patch);
+            toast('Scale set from that length', true);
+            setRefPts([]);
+            setLenInput('');
+            setTool('select');
+          }}
+        >
+          <span style={{ fontSize: 12.5 }}>That length is really</span>
+          <input className="input" autoFocus inputMode="decimal" style={{ width: 80 }} value={lenInput} onChange={(e) => setLenInput(e.target.value)} aria-label="Real length" />
+          <span className="muted">{s.units}</span>
+          <button className="btn primary sm" type="submit">
+            Set scale
+          </button>
+        </form>
+      )}
 
       {selTable && !busy && !drag.active && <TableContextBar t={selTable} at={toScreen({ x: selTable.x, y: selTable.y - tableHalfHeight(selTable) - 2.2 })} />}
 
@@ -890,6 +1040,7 @@ function Palette({ fitView, zoom, scale }: { fitView: () => void; zoom: (f: numb
             </>
           )}
         </Menu>
+        <PlansMenu />
         <span className="sep" />
         {tb('wall', 'wall', 'Draw walls', 'W')}
         {tb('column', 'column', 'Place column', 'C')}
@@ -911,6 +1062,64 @@ function Palette({ fitView, zoom, scale }: { fitView: () => void; zoom: (f: numb
         </button>
       </div>
     </>
+  );
+}
+
+function PlansMenu() {
+  const refsRaw = useStore((s) => s.project.refs);
+  const refs = refsRaw ?? [];
+  const selection = useStore((s) => s.selection);
+  const [busy, setBusy] = useState('');
+  return (
+    <Menu label="Venue floor plans" className="btn ghost sm" trigger={<><Icon name="image" size="sm" /> Plans{refs.length ? ` · ${refs.length}` : ''}</>}>
+      {(close) => (
+        <>
+          <div className="menu-label">Venue floor plans</div>
+          {refs.map((r) => (
+            <div key={r.id} className="menu-item" style={{ gap: 6 }}>
+              <button className="icon-btn sm" aria-pressed={r.visible} title={r.visible ? 'Hide' : 'Show'} onClick={() => updateRef(r.id, { visible: !r.visible })}>
+                <Icon name="eye" size="sm" />
+              </button>
+              <button
+                className="btn ghost sm"
+                style={{ flex: 1, justifyContent: 'flex-start', fontWeight: selection?.type === 'ref' && selection.ids[0] === r.id ? 600 : 400 }}
+                onClick={() => {
+                  if (!r.visible) updateRef(r.id, { visible: true });
+                  setSelection({ type: 'ref', ids: [r.id] });
+                  close();
+                }}
+              >
+                {r.name}
+              </button>
+              <input type="range" min={0.05} max={1} step={0.05} value={r.opacity} style={{ width: 70 }} onChange={(e) => updateRef(r.id, { opacity: +e.target.value }, false)} aria-label={`${r.name} opacity`} />
+            </div>
+          ))}
+          {refs.length > 0 && <div className="menu-sep" />}
+          <label className="menu-item" style={{ cursor: 'pointer' }}>
+            {busy ? <span className="spinner" /> : <Icon name="upload" size="sm" />}
+            <span>{busy || 'Add a floor plan (image or PDF)…'}</span>
+            <input
+              type="file"
+              accept="image/*,.pdf,application/pdf"
+              hidden
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                e.target.value = '';
+                if (!f) return;
+                try {
+                  await addReferenceFile(f, setBusy);
+                  close();
+                } catch (err) {
+                  toast((err as Error).message || "Couldn't add that file");
+                } finally {
+                  setBusy('');
+                }
+              }}
+            />
+          </label>
+        </>
+      )}
+    </Menu>
   );
 }
 
@@ -1031,6 +1240,18 @@ function EmptyState({ fit }: { fit: () => void }) {
 }
 
 // ---------- helpers ----------
+function snapTableCenter(p: Project, q: Pt, reach: number): Pt | null {
+  let best: Pt | null = null,
+    bd = reach;
+  for (const t of p.tables) {
+    const d = Math.hypot(t.x - q.x, t.y - q.y);
+    if (d < bd) {
+      bd = d;
+      best = { x: t.x, y: t.y };
+    }
+  }
+  return best;
+}
 function constrain(a: Pt, q: Pt): Pt {
   const dx = q.x - a.x,
     dy = q.y - a.y;

@@ -158,6 +158,25 @@ export interface Settings {
   colorBy: 'side' | 'meal' | 'group';
 }
 
+/** A venue floor plan (image or PDF page) shown under the layout for tracing and checking. */
+export interface RefLayer {
+  id: Id;
+  name: string;
+  /** Image URL: "/_blob/<asset id>" when stored with the artifact, or a data: URL locally */
+  src: string;
+  imgW: number;
+  imgH: number;
+  /** World position (ft) of the image's top-left corner */
+  x: number;
+  y: number;
+  /** Feet per image pixel */
+  scale: number;
+  rotation: number;
+  opacity: number;
+  visible: boolean;
+  locked: boolean;
+}
+
 export interface Project {
   version: 1;
   name: string;
@@ -169,15 +188,17 @@ export interface Project {
   seating: Record<Id, (Id | null)[]>;
   settings: Settings;
   imports?: ImportRecord[];
+  refs?: RefLayer[];
 }
 
 export type Selection =
   | { type: 'table'; ids: Id[] }
   | { type: 'element'; ids: Id[] }
   | { type: 'guest'; ids: Id[] }
+  | { type: 'ref'; ids: Id[] }
   | null;
 
-export type Tool = 'select' | 'pan' | 'wall' | 'column' | 'door' | 'window';
+export type Tool = 'select' | 'pan' | 'wall' | 'column' | 'door' | 'window' | 'refScale' | 'refAlign';
 
 export interface SeatRef {
   tableId: Id;

@@ -12,6 +12,7 @@ import {
   nameTablesAfterFlowers,
   relateAll,
   renumberTables,
+  scaleRoom,
   seatAtTable,
   seatGuest,
   setRelation,
@@ -29,6 +30,7 @@ import {
 import { REL_LABEL, REL_SHORT, type Analysis, type Issue } from './scoring';
 import { allMeals, allTags, setFilters } from './filters';
 import { useDrag } from './dnd';
+import { RefInspector } from './RefInspector';
 import { discLabel, dismiss, useListValue } from './discrepancies';
 import { fmtLen, uid } from './util';
 import { Icon, NumField, TextField } from './ui';
@@ -43,6 +45,9 @@ export function Inspector({ analysis, onAutoSeat, onSettings }: { analysis: Anal
   } else if (selection?.type === 'element') {
     const els = project.elements.filter((e) => selection.ids.includes(e.id));
     body = els.length === 1 ? <ElementInspector el={els[0]} /> : els.length ? <MultiElement n={els.length} /> : null;
+  } else if (selection?.type === 'ref') {
+    const r = project.refs?.find((x) => x.id === selection.ids[0]);
+    body = r ? <RefInspector r={r} /> : null;
   } else if (selection?.type === 'guest') {
     const gs = project.guests.filter((g) => selection.ids.includes(g.id));
     body = gs.length === 1 ? <GuestInspector g={gs[0]} analysis={analysis} /> : gs.length ? <MultiGuest guests={gs} /> : null;
@@ -535,6 +540,7 @@ function WallFields({ el }: { el: Extract<RoomElement, { kind: 'wall' }> }) {
       e.y2 = +(e.y1 + Math.sin(a) * L).toFixed(2);
     });
   return (
+    <>
     <div className="grid2">
       <label className="field">
         <span>Length</span>
@@ -548,6 +554,31 @@ function WallFields({ el }: { el: Extract<RoomElement, { kind: 'wall' }> }) {
         <span>Angle</span>
         <NumField value={Math.round(ang * 10) / 10} onChange={setAng} step={15} min={-360} max={360} unit="°" />
       </label>
+    </div>
+    <RescaleRoom len={len} origin={{ x: el.x1, y: el.y1 }} />
+    </>
+  );
+}
+
+function RescaleRoom({ len, origin }: { len: number; origin: { x: number; y: number } }) {
+  const s = useStore((x) => x.project.settings);
+  const [real, setReal] = useState('');
+  const apply = () => {
+    const v = parseFloat(real);
+    if (!(v > 0)) return;
+    scaleRoom((s.units === 'm' ? v * 3.28084 : v) / len, origin);
+    setReal('');
+  };
+  return (
+    <div className="callout" style={{ display: 'grid', gap: 6 }}>
+      <span>Know this wall's real length? Rescale the whole room to match. Table sizes stay the same; their positions move with the room.</span>
+      <div className="row">
+        <input className="input" style={{ width: 90 }} inputMode="decimal" placeholder={s.units} value={real} onChange={(e) => setReal(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && apply()} aria-label="Real length of this wall" />
+        <span className="muted">{s.units}</span>
+        <button className="btn sm" onClick={apply} disabled={!(parseFloat(real) > 0)}>
+          Rescale room
+        </button>
+      </div>
     </div>
   );
 }
