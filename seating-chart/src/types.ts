@@ -22,6 +22,10 @@ export interface Guest {
   notes: string;
   /** Pinned guests are never moved by auto-seat. */
   pinned: boolean;
+  /** ID from the source system (e.g. Joy's guest ID) — used to match on re-import. */
+  extId?: string;
+  /** Events this guest is attending, from the import (e.g. "Rehearsal Dinner"). */
+  events?: string[];
 }
 
 export type RelationKind = 'together' | 'prefer' | 'avoid' | 'apart';
@@ -33,7 +37,7 @@ export interface Relation {
   kind: RelationKind;
 }
 
-export type TableShape = 'round' | 'rect' | 'square' | 'oval' | 'head' | 'serpentine';
+export type TableShape = 'round' | 'rect' | 'square' | 'oval' | 'head';
 
 export interface Table {
   id: Id;
