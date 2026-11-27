@@ -1,7 +1,7 @@
 import type { Guest, Id, Project, Relation, Table } from './types';
 import { effectiveSeat, effectOf, type Effect } from './relations';
 import { clearanceIssues, joinedGroups, slotsAdjacent } from './geometry';
-import { likelySame } from './util';
+import { likelySame, tableTags } from './util';
 import { tableName } from './store';
 import { rulesOf } from './rules';
 import { byGuest, findDiscrepancies } from './discrepancies';
@@ -96,10 +96,11 @@ const allGroupLabel = (k: string, p: Project) => {
 };
 
 function reservedFit(g: Guest, t: Table, R: ReturnType<typeof rulesOf>) {
-  const res = t.reservedFor.trim().toLowerCase();
-  if (!res) return 0;
+  const list = tableTags(t).map((x) => x.toLowerCase());
+  if (!list.length) return 0;
   const tags = groupTags(g);
-  const matches = tags.includes(res) || (g.child && /kid|child/.test(res)) || g.side === res || (res === 'family' && tags.some((x) => x.includes('family')));
+  // a guest belongs here if they match any of the table's tags
+  const matches = list.some((res) => tags.includes(res) || (g.child && /kid|child/.test(res)) || g.side === res || (res === 'family' && tags.some((x) => x.includes('family'))));
   return matches ? R.reserved * 0.75 : -R.reserved * 1.25;
 }
 
@@ -199,10 +200,10 @@ export function analyse(p: Project) {
         guestIds: [c.a.id, c.b.id],
       });
     for (const g of r.isolated) issues.push({ level: 'info', text: `${g.name} has no ties at ${tableName(r.table)}`, tableId: r.table.id, guestIds: [g.id] });
-    const res = r.table.reservedFor.trim();
+    const res = tableTags(r.table).join(' / ');
     if (res) {
       const off = r.guests.filter((g) => reservedFit(g, r.table, rulesOf(p.settings)) < 0);
-      if (off.length) issues.push({ level: 'warn', text: `${off.length} guest(s) at ${tableName(r.table)} aren't in "${res}"`, tableId: r.table.id, guestIds: off.map((g) => g.id) });
+      if (off.length) issues.push({ level: 'warn', text: `${off.length} guest${off.length === 1 ? '' : 's'} at ${tableName(r.table)} ${off.length === 1 ? "isn't" : "aren't"} tagged ${tableTags(r.table).map((x) => `"${x}"`).join(' or ')}`, tableId: r.table.id, guestIds: off.map((g) => g.id) });
     }
   }
 

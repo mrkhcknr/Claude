@@ -1,7 +1,7 @@
 /** Tag management across all guests: rename, merge, delete and colours. */
 import type { Project } from './types';
 import { toast, update } from './store';
-import { hueColor } from './util';
+import { hueColor, joinTags, tableTags } from './util';
 
 const split = (s: string) => s.split(/[,;|]/).map((x) => x.trim()).filter(Boolean);
 const lc = (s: string) => s.trim().toLowerCase();
@@ -27,7 +27,7 @@ export function renameTag(from: string, to: string) {
       g.group = next.join(', ');
       n++;
     }
-    for (const t of d.tables) if (lc(t.reservedFor) === lc(from)) t.reservedFor = name;
+    for (const t of d.tables) if (tableTags(t).some((x) => lc(x) === lc(from))) t.reservedFor = joinTags(tableTags(t).map((x) => (lc(x) === lc(from) ? name : x)));
     for (const pl of d.settings.placements ?? []) if (pl.group === lc(from)) pl.group = lc(name);
     for (const r of d.relations) if (r.contexts?.some((c) => lc(c) === lc(from))) r.contexts = [...new Map(r.contexts.map((c) => (lc(c) === lc(from) ? name : c)).map((c) => [lc(c), c])).values()];
     const colors = d.settings.tagColors;
@@ -50,7 +50,7 @@ export function deleteTag(tag: string) {
         n++;
       }
     }
-    for (const t of d.tables) if (lc(t.reservedFor) === lc(tag)) t.reservedFor = '';
+    for (const t of d.tables) if (tableTags(t).some((x) => lc(x) === lc(tag))) t.reservedFor = joinTags(tableTags(t).filter((x) => lc(x) !== lc(tag)));
     if (d.settings.placements) d.settings.placements = d.settings.placements.filter((pl) => pl.group !== lc(tag));
     for (const r of d.relations) if (r.contexts?.some((c) => lc(c) === lc(tag))) {
       r.contexts = r.contexts.filter((c) => lc(c) !== lc(tag));

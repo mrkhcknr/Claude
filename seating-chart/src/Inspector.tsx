@@ -36,7 +36,7 @@ import { allMeals, allTags, setFilters } from './filters';
 import { useDrag } from './dnd';
 import { RefInspector } from './RefInspector';
 import { discLabel, dismiss, useListValue } from './discrepancies';
-import { fmtLen, uid } from './util';
+import { fmtLen, uid, joinTags, tableTags } from './util';
 import { Icon, NumField, TextField } from './ui';
 
 /** [中文, English] for every flower name, for the two name pickers. */
@@ -308,17 +308,13 @@ function TableInspector({ t, analysis }: { t: Table; analysis: Analysis }) {
           <TextField value={t.area ?? ''} placeholder="e.g. Top room" onCommit={(v) => set({ area: v.trim() || undefined })} list="area-list" />
           <AreaList />
         </label>
-        <label className="field">
-          <span>Reserved for</span>
-          <TextField value={t.reservedFor} placeholder="e.g. Kids, Family, a group name" onCommit={(v) => set({ reservedFor: v })} list="tag-list" />
-          <datalist id="tag-list">
-            {tags.map((x) => (
-              <option key={x.label} value={x.label} />
-            ))}
-            <option value="Kids" />
-            <option value="Wedding party" />
-          </datalist>
-        </label>
+        <div className="field">
+          <span>Table tags</span>
+          <TableTagsField value={tableTags(t)} onChange={(list) => set({ reservedFor: joinTags(list) })} options={tags.map((x) => x.label)} />
+          <span className="muted small" style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
+            Guests with any of these tags are seated here first; others are kept away (strength under Rules → Reserved tables).
+          </span>
+        </div>
       </div>
       <div className="section">
         <h3>
@@ -443,6 +439,19 @@ function MultiTable({ tables }: { tables: Table[] }) {
             <TextField value={tables.every((t) => t.area === first.area) ? first.area ?? '' : ''} placeholder={tables.every((t) => t.area === first.area) ? 'e.g. Top room' : 'Mixed'} onCommit={(v) => updateTables(ids, { area: v.trim() || undefined })} list="area-list" />
             <AreaList />
           </label>
+        </div>
+        <div className="field">
+          <span>Table tags (all {tables.length})</span>
+          <TableTagsField
+            value={tableTags(first).filter((x) => tables.every((t) => tableTags(t).some((y) => y.toLowerCase() === x.toLowerCase())))}
+            onChange={(list) => {
+              const common = tableTags(first).filter((x) => tables.every((t) => tableTags(t).some((y) => y.toLowerCase() === x.toLowerCase())));
+              const removed = common.filter((x) => !list.includes(x)).map((x) => x.toLowerCase());
+              for (const t of tables) updateTables([t.id], { reservedFor: joinTags([...tableTags(t).filter((x) => !removed.includes(x.toLowerCase())), ...list]) });
+            }}
+            options={allTags(useStore.getState().project).map((x) => x.label)}
+            placeholder="Add to all…"
+          />
         </div>
         <div className="row">
           <button className="btn sm" onClick={() => nameTablesAfterFlowers(ids)}>
@@ -1150,5 +1159,50 @@ function AreaList() {
         <option key={a} value={a} />
       ))}
     </datalist>
+  );
+}
+
+/** Chips for a table's tags, with an input that suggests existing guest tags. */
+function TableTagsField({ value, onChange, options, placeholder = 'Add tag…' }: { value: string[]; onChange: (v: string[]) => void; options: string[]; placeholder?: string }) {
+  const [v, setV] = useState('');
+  const add = (x: string) => {
+    if (!x.trim()) return;
+    if (!value.some((y) => y.toLowerCase() === x.trim().toLowerCase())) onChange([...value, x.trim()]);
+    setV('');
+  };
+  const listId = useMemo(() => 'tt-' + Math.random().toString(36).slice(2), []);
+  return (
+    <div className="row" style={{ gap: 5 }}>
+      {value.map((t) => (
+        <span key={t} className="chip" aria-pressed="true">
+          <span>{t}</span>
+          <button className="icon-btn sm" style={{ width: 16, height: 16 }} aria-label={`Remove ${t}`} onClick={() => onChange(value.filter((x) => x !== t))}>
+            <Icon name="x" size="sm" />
+          </button>
+        </span>
+      ))}
+      <input
+        className="input"
+        style={{ width: 140, padding: '3px 8px' }}
+        placeholder={placeholder}
+        list={listId}
+        value={v}
+        onChange={(e) => {
+          // picking from the list adds it straight away
+          const x = e.target.value;
+          if (options.some((o) => o === x) || ['Kids'].includes(x)) add(x);
+          else setV(x);
+        }}
+        onKeyDown={(e) => e.key === 'Enter' && add(v)}
+        onBlur={() => add(v)}
+        aria-label="Add table tag"
+      />
+      <datalist id={listId}>
+        {options.filter((o) => !value.some((x) => x.toLowerCase() === o.toLowerCase())).map((o) => (
+          <option key={o} value={o} />
+        ))}
+        <option value="Kids" />
+      </datalist>
+    </div>
   );
 }

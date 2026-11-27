@@ -207,3 +207,7 @@ export function combineRsvp<T extends 'yes' | 'no' | 'pending'>(answers: (T | un
   if (!real.size) return 'pending';
   return real.size === 1 ? [...real][0] : null;
 }
+
+/** A table's tags ("Groom, Wedding Party" → ["Groom", "Wedding Party"]). */
+export const tableTags = (t: { reservedFor: string }) => [...new Map(t.reservedFor.split(/[,;|]/).map((x) => x.trim()).filter(Boolean).map((x) => [x.toLowerCase(), x])).values()];
+export const joinTags = (tags: string[]) => [...new Map(tags.map((x) => x.trim()).filter(Boolean).map((x) => [x.toLowerCase(), x])).values()].join(', ');

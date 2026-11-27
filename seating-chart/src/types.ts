@@ -97,6 +97,7 @@ export interface Table {
   /** Locked tables are not moved by drag and are skipped by auto-seat. */
   locked: boolean;
   /** Reserved for a category (e.g. "Kids"). Auto-seat prefers matching groups. */
+  /** Table tags: groups this table is for, comma-separated ("Groom, Wedding Party"). Guests with any of them are preferred here. */
   reservedFor: string;
   /** Seating area this table belongs to, e.g. "Top room". Groups can be assigned to an area. */
   area?: string;
