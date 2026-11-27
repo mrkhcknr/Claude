@@ -29,6 +29,7 @@ import {
 } from './store';
 import { CHAIR_R, isCircular, projectBounds, rotate, seatLocal, snapToWall, tableFootprint, toWorld, type Pt } from './geometry';
 import { useDrag, startGuestDrag, cancelGuestDrag } from './dnd';
+import { planBlockMove, setPickMode, usePick } from './seatMove';
 import { useFilters, guestMatcher, allTags } from './filters';
 import { tagColor as tagColorFor } from './tags';
 import { buildAffinity, groupTags, type Analysis } from './scoring';
@@ -145,6 +146,13 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
   // drop feedback
   const overTable = drag.active && drag.over && (drag.over.kind === 'table' || drag.over.kind === 'seat') ? drag.over.tableId : null;
   const overSeat = drag.active && drag.over?.kind === 'seat' ? drag.over.seat : -1;
+  // group drag preview: where each picked-up guest lands, and where the people in the way slide to
+  const blockPreview = useMemo(() => {
+    if (!drag.active || !drag.anchor || drag.guestIds.length < 2 || drag.over?.kind !== 'seat') return null;
+    const plan = planBlockMove(project, drag.guestIds, drag.anchor, { t: drag.over.tableId, s: drag.over.seat });
+    if (!plan) return null;
+    return { to: new Set([...plan.to.values()].map((r) => r.t + ':' + r.s)), slide: new Set([...plan.displaced.values()].map((r) => r.t + ':' + r.s)) };
+  }, [drag.active, drag.anchor, drag.guestIds, drag.over, project]);
   const dropBad = useMemo(() => {
     if (!overTable) return false;
     const seats = project.seating[overTable] ?? [];
@@ -475,8 +483,19 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
         x1 = Math.max(cur.start.x, cur.cur.x),
         y0 = Math.min(cur.start.y, cur.cur.y),
         y1 = Math.max(cur.start.y, cur.cur.y);
-      const ids = project.tables.filter((t) => t.x >= x0 && t.x <= x1 && t.y >= y0 && t.y <= y1).map((t) => t.id);
-      if (ids.length) setSelection({ type: 'table', ids });
+      const inBox = (q: Pt) => q.x >= x0 && q.x <= x1 && q.y >= y0 && q.y <= y1;
+      const ids = project.tables.filter((t) => inBox(t)).map((t) => t.id);
+      // seated guests whose chairs are in the box: chosen when guests are already selected, "Select several" is on,
+      // or the box doesn't take in a whole table
+      const guestsIn: Id[] = [];
+      for (const t of project.tables) {
+        const arr = project.seating[t.id] ?? [];
+        seatLocal(t).forEach((lp, i) => arr[i] && inBox(toWorld(t, lp)) && guestsIn.push(arr[i]!));
+      }
+      const sel0 = getState().selection;
+      const wantGuests = guestsIn.length > 0 && (sel0?.type === 'guest' || usePick.getState().on || !ids.length);
+      if (wantGuests) setSelection({ type: 'guest', ids: [...new Set([...(sel0?.type === 'guest' ? sel0.ids : []), ...guestsIn])] });
+      else if (ids.length) setSelection({ type: 'table', ids });
       else {
         const els = project.elements
           .filter((el) => (el.kind === 'wall' ? Math.min(el.x1, el.x2) >= x0 && Math.max(el.x1, el.x2) <= x1 && Math.min(el.y1, el.y2) >= y0 && Math.max(el.y1, el.y2) <= y1 : el.x >= x0 && el.x <= x1 && el.y >= y0 && el.y <= y1))
@@ -769,13 +788,13 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
                   return (
                     <g
                       key={i}
-                      className={`seat ${guest ? 'filled' : ''} ${guest && s.colorBy === 'side' ? 'side-' + (guest.side || 'none') : ''} ${dim ? 'dim' : ''} ${match ? 'match' : ''} ${over ? 'over' + (dropBad ? ' bad' : '') : ''} ${focusGuest && gid === focusGuest ? 'focus' : ''} ${guest && selGuests.has(guest.id) ? 'match' : ''}`}
+                      className={`seat ${blockPreview?.to.has(t.id + ':' + i) ? 'block-to' : ''} ${blockPreview?.slide.has(t.id + ':' + i) ? 'block-slide' : ''} ${guest ? 'filled' : ''} ${guest && s.colorBy === 'side' ? 'side-' + (guest.side || 'none') : ''} ${dim ? 'dim' : ''} ${match ? 'match' : ''} ${over ? 'over' + (dropBad ? ' bad' : '') : ''} ${focusGuest && gid === focusGuest ? 'focus' : ''} ${guest && selGuests.has(guest.id) ? 'match' : ''}`}
                       data-drop="seat"
                       data-table={t.id}
                       data-seat={i}
                       style={guest && s.colorBy !== 'side' ? ({ '--seat-fill': colorOf(guest) } as React.CSSProperties) : undefined}
                       onPointerDown={(e) => {
-                        if (!guest && tool === 'select' && !spaceDown) {
+                        if (!guest && tool === 'select' && !spaceDown && !usePick.getState().on) {
                           // tap-to-seat: with guests selected, tapping an empty chair seats them there
                           const sel = getState().selection;
                           if (sel?.type === 'guest' && sel.ids.length) {
@@ -790,7 +809,18 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
                         }
                         if (!guest || tool !== 'select' || spaceDown) return;
                         e.stopPropagation();
-                        startGuestDrag(e, [guest.id], guest.name, (ev) => setSelection({ type: 'guest', ids: ev.shiftKey && selection?.type === 'guest' ? [...new Set([...selection.ids, guest.id])] : [guest.id] }));
+                        const cur = getState().selection;
+                        const picked = cur?.type === 'guest' ? cur.ids : [];
+                        // click: select; with Shift / Cmd / Ctrl or "Select several" on, add or remove this guest
+                        const onClick = (ev: PointerEvent) => {
+                          const add = usePick.getState().on || ev.shiftKey || ev.metaKey || ev.ctrlKey;
+                          if (!add) return setSelection({ type: 'guest', ids: [guest.id] });
+                          const next = picked.includes(guest.id) ? picked.filter((x) => x !== guest.id) : [...picked, guest.id];
+                          setSelection(next.length ? { type: 'guest', ids: next } : null);
+                        };
+                        // dragging one of several selected guests moves them all, keeping their places relative to each other
+                        if (picked.length > 1 && picked.includes(guest.id)) startGuestDrag(e, picked, `${picked.length} guests`, onClick, guest.id);
+                        else startGuestDrag(e, [guest.id], guest.name, onClick);
                       }}
                     >
                       {/* a generous, invisible drop zone: chairs are only a few pixels wide when zoomed out */}
@@ -1064,6 +1094,25 @@ function TableContextBar({ t, at }: { t: Table; at: Pt }) {
   );
 }
 
+/** "Select several guests": taps on seated guests add or remove them, so a group can be dragged together (and works on touch). */
+function PickToggle() {
+  const on = usePick((s) => s.on);
+  return (
+    <button
+      className="icon-btn"
+      aria-pressed={on}
+      title={on ? 'Done selecting guests' : 'Select several guests, then drag one to move them all'}
+      aria-label="Select several guests"
+      onClick={() => {
+        setPickMode(!on);
+        if (!on) toast('Tap guests to add them, then drag any one of them. The others keep their places beside it.');
+      }}
+    >
+      <Icon name="lasso" />
+    </button>
+  );
+}
+
 /** One button for the whole floor plan: lock everything in place, or unlock it all for rearranging. */
 function LayoutLock() {
   const total = useStore((s) => s.project.tables.length + s.project.elements.length);
@@ -1114,6 +1163,7 @@ function Palette({ fitView, zoom, scale }: { fitView: () => void; zoom: (f: numb
       <div className="palette tools" onPointerDown={(e) => e.stopPropagation()}>
         {tb('select', 'pointer', 'Select & move', 'V')}
         {tb('pan', 'hand', 'Pan', 'H')}
+        <PickToggle />
         <LayoutLock />
         <span className="sep" />
         <Menu label="Add table" className="btn ghost sm" trigger={<><Icon name="round" size="sm" /> Table</>}>

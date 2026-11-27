@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { Id } from './types';
 import { getState, tableName, seatAtTable, seatGuest, toast, unseat, updateGuests } from './store';
+import { applyBlockMove, planBlockMove } from './seatMove';
 
 /** Where a guest drag can land. Read from data-* attributes on the element under the pointer. */
 export type DropTarget =
@@ -11,6 +12,8 @@ export type DropTarget =
 
 interface DragState {
   guestIds: Id[];
+  /** For a group drag from a chair: the guest under the pointer (the rest keep their offset from them) */
+  anchor?: Id;
   label: string;
   x: number;
   y: number;
@@ -72,7 +75,7 @@ export function cancelGuestDrag() {
   cancelActive?.();
 }
 
-export function startGuestDrag(e: React.PointerEvent | PointerEvent, guestIds: Id[], label: string, onClick?: (ev: PointerEvent) => void) {
+export function startGuestDrag(e: React.PointerEvent | PointerEvent, guestIds: Id[], label: string, onClick?: (ev: PointerEvent) => void, anchor?: Id) {
   if (e.button !== 0) return;
   const sx = e.clientX,
     sy = e.clientY;
@@ -83,7 +86,7 @@ export function startGuestDrag(e: React.PointerEvent | PointerEvent, guestIds: I
     if (!dragging && Math.hypot(ev.clientX - sx, ev.clientY - sy) > 5) {
       dragging = true;
       document.body.classList.add('is-dragging');
-      useDrag.setState({ guestIds, label, active: true });
+      useDrag.setState({ guestIds, label, active: true, anchor });
     }
     if (dragging) {
       ev.preventDefault();
@@ -103,8 +106,8 @@ export function startGuestDrag(e: React.PointerEvent | PointerEvent, guestIds: I
       return;
     }
     const target = readTarget(ev.clientX, ev.clientY);
-    useDrag.setState({ active: false, over: null, guestIds: [] });
-    if (target && ev.type === 'pointerup') drop(guestIds, target);
+    useDrag.setState({ active: false, over: null, guestIds: [], anchor: undefined });
+    if (target && ev.type === 'pointerup') drop(guestIds, target, anchor);
   };
   cancelActive = () => {
     window.removeEventListener('pointermove', move);
@@ -119,8 +122,18 @@ export function startGuestDrag(e: React.PointerEvent | PointerEvent, guestIds: I
   window.addEventListener('pointercancel', up);
 }
 
-export function drop(guestIds: Id[], t: DropTarget) {
+export function drop(guestIds: Id[], t: DropTarget, anchor?: Id) {
   const { project } = getState();
+  // a group picked up from its chairs moves as a block: same shape, people in the way slide into the gap
+  if (anchor && guestIds.length > 1 && t.kind === 'seat') {
+    const plan = planBlockMove(project, guestIds, anchor, { t: t.tableId, s: t.seat });
+    if (plan) {
+      applyBlockMove(plan);
+      const n = plan.displaced.size;
+      toast(`Moved ${guestIds.length} guests${n ? `; ${n} ${n === 1 ? 'guest' : 'guests'} slid over to make room` : ''}`, true);
+      return;
+    }
+  }
   const names = guestIds.map((id) => project.guests.find((g) => g.id === id)?.name ?? '').filter(Boolean);
   const who = names.length === 1 ? names[0] : `${names.length} guests`;
   if (t.kind === 'unseat') {

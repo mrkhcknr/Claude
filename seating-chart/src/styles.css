@@ -1142,6 +1142,7 @@ body.is-dragging .unseat-zone {
 .plan .tbl.over .table-shape {
   stroke: var(--drop, var(--ok));
   stroke-width: 3;
+  vector-effect: non-scaling-stroke;
 }
 .plan .tbl.over {
   --drop: var(--ok);
@@ -2603,4 +2604,22 @@ select.cell-input.rsvp-pending {
 .tbl.fixed,
 .tbl.fixed * {
   cursor: pointer;
+}
+/* group drag preview: where the picked-up guests land, and where the people in the way slide to */
+.plan .seat.block-to circle.chair {
+  stroke: var(--ok);
+  stroke-width: 3;
+  fill: color-mix(in srgb, var(--ok) 30%, transparent);
+}
+.plan .seat.block-slide circle.chair {
+  stroke: var(--bloom);
+  stroke-width: 2.4;
+  stroke-dasharray: 3 2;
+}
+/* highlight rings are drawn in screen pixels, not feet, so they stay thin at any zoom */
+.plan .seat.match circle.chair,
+.plan .seat.over circle.chair,
+.plan .seat.block-to circle.chair,
+.plan .seat.block-slide circle.chair {
+  vector-effect: non-scaling-stroke;
 }
