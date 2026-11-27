@@ -3,10 +3,10 @@ import type { Guest, ImportRecord, Project } from './types';
 import { PrivacyNote, RemovedColumns, SheetPicker } from './CrosscheckDialog';
 import { ACCEPT, loadTable, sheetToParsed } from './fileImport';
 import type { Sheet } from './xlsx';
-import { addGuests, emptyProject, loadProject, migrate, setSelection, tableName, toast, update, useStore } from './store';
+import { addGuests, loadProject, migrate, setSelection, tableName, toast, update, useStore } from './store';
 import { FIELD_LABEL, detectMapping, parsePaste, planMerge, rowsToGuests, suggestOptions, toRsvp, type Field, type ImportOptions, type Mapping, type Parsed } from './importer';
 import { Dialog, Icon, NumField, TextField, ask } from './ui';
-import { uid } from './util';
+import { uid, combineRsvp } from './util';
 
 // ======================= Import guests =======================
 const FIELDS: Field[] = ['first', 'last', 'name', 'suffix', 'party', 'group', 'rsvp', 'meal', 'dietary', 'side', 'child', 'notes', 'table', 'plusOne', 'plusOneOf', 'extId'];
@@ -96,14 +96,15 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
           const g = d.guests.find((x) => x.id === u.existing.id);
           if (!g) continue;
           const inc = fix(u.incoming);
-          g.rsvp = inc.rsvp;
+          if (!pasted) g.sources = { ...(g.sources ?? {}), ...src(u.incoming) };
+          // one RSVP across lists: a real answer beats pending; Coming vs Declined keeps the chart's and is flagged
+          g.rsvp = pasted ? inc.rsvp : combineRsvp([inc.rsvp, ...Object.values(g.sources ?? {}).map((x) => x.rsvp)]) ?? g.rsvp;
           if (inc.meal) g.meal = inc.meal;
           if (inc.dietary) g.dietary = inc.dietary;
           if (inc.extId) g.extId = inc.extId;
           if (inc.events) g.events = inc.events;
           if (inc.party && !g.party) g.party = inc.party;
           if (inc.side && !g.side) g.side = inc.side;
-          if (!pasted) g.sources = { ...(g.sources ?? {}), ...src(u.incoming) };
           const tags = new Set([...g.group.split(/[,;|]/), ...inc.group.split(/[,;|]/)].map((x) => x.trim()).filter(Boolean));
           g.group = [...tags].join(', ');
         }
@@ -443,25 +444,15 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
         <input type="checkbox" className="switch" checked={s.showSeatNames} onChange={(e) => set({ showSeatNames: e.target.checked })} /> Show first names next to seats when zoomed in
       </label>
       <div className="callout warn" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>Start over with an empty seating chart. Download a backup first.</span>
+        <span>Clear seats, relationships, the guest list or the floor plan — you choose which.</span>
         <button
-          className="btn sm danger"
-          onClick={async () => {
-            if (await ask('Erase everything?', { detail: 'Guests, ties, the room and all seats are removed for everyone this chart is shared with. You can undo right after.', ok: 'Erase everything', danger: true })) {
-              update((d) => {
-                const e = emptyProject();
-                d.guests = [];
-                d.relations = [];
-                d.tables = [];
-                d.elements = [];
-                d.seating = {};
-                d.name = e.name;
-              });
-              onClose();
-            }
+          className="btn sm"
+          onClick={() => {
+            onClose();
+            window.dispatchEvent(new Event('app:reset'));
           }}
         >
-          Erase
+          Reset…
         </button>
       </div>
     </Dialog>

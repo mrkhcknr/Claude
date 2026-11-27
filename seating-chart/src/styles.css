@@ -2304,3 +2304,13 @@ select.cell-input.rsvp-pending {
 
 .guest-grid th.flag-col { width: 1%; text-align: center; hyphens: manual; }
 .guest-grid td.flags { text-align: center; }
+
+.saved-layouts { display: grid; gap: 6px; }
+.saved-layout { display: grid; grid-template-columns: 1fr auto auto auto; gap: 6px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+
+.reset-list { display: grid; gap: 6px; }
+.reset-item { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.reset-item > span { display: grid; gap: 2px; }
+.reset-item.danger b { color: var(--bad); }
+.reset-item.implied { opacity: 0.75; }
+.reset-item .badge { justify-self: start; }

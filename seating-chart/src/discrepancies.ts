@@ -37,7 +37,8 @@ export function findDiscrepancies(p: Project): Discrepancy[] {
     for (const [label, s] of Object.entries(g.sources ?? {})) {
       const imp = byLabel.get(label);
       if (!imp) continue;
-      if (s.rsvp && s.rsvp !== g.rsvp)
+      // pending in a list never conflicts with a real answer in the chart
+      if (s.rsvp && s.rsvp !== 'pending' && s.rsvp !== g.rsvp)
         push({ kind: 'rsvp', label, importId: imp.id, guestId: g.id, chart: word(g.rsvp), list: word(s.rsvp), text: `${g.name}: ${label} says ${word(s.rsvp)}, the chart says ${word(g.rsvp)}` });
       if (s.meal && normName(s.meal) !== normName(g.meal))
         push({ kind: 'meal', label, importId: imp.id, guestId: g.id, chart: g.meal || '—', list: s.meal, text: `${g.name}: meal is "${s.meal}" in ${label}, "${g.meal || 'not set'}" in the chart` });

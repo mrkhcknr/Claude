@@ -116,7 +116,7 @@ export function GuestsView({ analysis }: { analysis: Analysis }) {
   };
 
   function exportView() {
-    const head = ['Guest', 'Household', 'RSVP', 'Meal', 'Dietary', 'Side', 'Groups', 'Table', 'Seat', 'Child', 'Notes', ...labels.flatMap((l) => [`${l} RSVP`, `${l} meal`]), 'Discrepancies'];
+    const head = ['Guest', 'Household', 'RSVP', 'Meal', 'Dietary', 'Side', 'Groups', 'Table', 'Seat', 'Child', 'Notes', ...labels.map((l) => `${l} meal`), 'Discrepancies'];
     const body = rows.map((g) => {
       const l = loc.get(g.id);
       return [
@@ -131,7 +131,7 @@ export function GuestsView({ analysis }: { analysis: Analysis }) {
         l ? l.seat + 1 : '',
         g.child ? 'Yes' : '',
         g.notes,
-        ...labels.flatMap((lb) => [g.sources?.[lb]?.rsvp ? rsvpWord(g.sources[lb].rsvp!) : '', g.sources?.[lb]?.meal ?? '']),
+        ...labels.map((lb) => g.sources?.[lb]?.meal ?? ''),
         (analysis.discByGuest.get(g.id) ?? []).map((d) => d.text).join(' | '),
       ];
     });
@@ -320,7 +320,7 @@ export function GuestsView({ analysis }: { analysis: Analysis }) {
                         const miss = ds.some((d) => d.label === lb && d.kind === 'missing');
                         return (
                           <td key={lb} className={`small ${off ? 'src-off' : ''}`}>
-                            {src ? [src.rsvp && rsvpWord(src.rsvp), src.meal].filter(Boolean).join(' · ') || '✓' : miss ? <span className="badge warn">missing</span> : <span className="muted">—</span>}
+                            {src ? src.meal || '✓' : miss ? <span className="badge warn">missing</span> : <span className="muted">—</span>}
                           </td>
                         );
                       })}

@@ -197,3 +197,13 @@ export function hueColor(i: number, l = 0.68, c = 0.13) {
   const hue = (i * 137.508 + 20) % 360;
   return `oklch(${l} ${c} ${hue.toFixed(1)})`;
 }
+
+/**
+ * One RSVP from several lists: a real answer beats "pending" (so Declined in Joy + Pending elsewhere
+ * is Declined). Coming in one list and Declined in another is a genuine conflict, returned as null.
+ */
+export function combineRsvp<T extends 'yes' | 'no' | 'pending'>(answers: (T | undefined | null)[]): T | 'pending' | null {
+  const real = new Set(answers.filter((a): a is T => !!a && a !== 'pending'));
+  if (!real.size) return 'pending';
+  return real.size === 1 ? [...real][0] : null;
+}

@@ -64,8 +64,8 @@ export function CrosscheckDialog({ open, onClose }: { open: boolean; onClose: ()
   const covered = new Set(matched.map((r) => r.guestId!));
   const missing = project.guests.filter((g) => g.rsvp !== 'no' && !covered.has(g.id));
   const diffs = matched.flatMap((r) => diffsFor(r, byId.get(r.guestId!)!).map((d) => ({ r, g: byId.get(r.guestId!)!, d, key: `${r.i}:${d.field}` })));
-  const fills = diffs.filter((x) => x.d.from === '—');
-  const conflicts = diffs.filter((x) => x.d.from !== '—');
+  const fills = diffs.filter((x) => x.d.auto || x.d.from === '—');
+  const conflicts = diffs.filter((x) => !x.d.auto && x.d.from !== '—');
 
   // default: fill empty meals/dietary from the list; RSVP and real conflicts wait for a decision
   useEffect(() => {

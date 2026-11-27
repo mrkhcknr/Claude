@@ -8,9 +8,10 @@
  *   relations/{id}      Relation
  *   tables/{id}         Table + { seating: (guestId|null)[] }   (seats stays the seat count)
  *   elements/{id}       RoomElement
+ *   layouts/{id}        SavedLayout (a named copy of the room and tables)
  */
 import { create } from 'zustand';
-import type { Guest, Project, RefLayer, Relation, RoomElement, Table } from './types';
+import type { Guest, Project, RefLayer, Relation, RoomElement, SavedLayout, Table } from './types';
 import { STORAGE_KEY, emptyProject, migrate, normalizeSeating, useStore } from './store';
 
 type Unsub = () => void;
@@ -56,7 +57,7 @@ export const useSync = create<{ mode: SyncMode; pending: number; error: string; 
 let downloadsNs: DownloadsNs | null = null;
 export const getDownloads = () => downloadsNs;
 
-const COLLECTIONS = ['guests', 'relations', 'tables', 'elements', 'refs', 'meta'] as const;
+const COLLECTIONS = ['guests', 'relations', 'tables', 'elements', 'refs', 'layouts', 'meta'] as const;
 type Coll = (typeof COLLECTIONS)[number];
 
 /** JSON of what the server last told us (or what we last wrote), per doc path. */
@@ -82,6 +83,7 @@ export async function startSync() {
     tables: new Map(),
     elements: new Map(),
     refs: new Map(),
+    layouts: new Map(),
     meta: new Map(),
   };
   const loaded = new Set<Coll>();
@@ -184,6 +186,7 @@ function applyRemote(docs: Record<Coll, Map<string, Record<string, unknown>>>) {
       relations: keep<Relation>(cur.relations, docs.relations, 'relations'),
       elements: keep<RoomElement>(cur.elements, docs.elements, 'elements'),
       refs: keep<RefLayer>(cur.refs ?? [], docs.refs, 'refs'),
+      layouts: keep<SavedLayout>(cur.layouts ?? [], docs.layouts, 'layouts'),
       tables,
       seating,
     }),
@@ -264,6 +267,7 @@ function diffAndQueue(a: Project, b: Project) {
   diffList('relations', a.relations, b.relations, strip);
   diffList('elements', a.elements, b.elements, strip);
   diffList('refs', a.refs ?? [], b.refs ?? [], strip);
+  diffList('layouts', a.layouts ?? [], b.layouts ?? [], strip);
   // a table doc also carries its seats, so seat changes rewrite that table
   if (a.tables !== b.tables || a.seating !== b.seating) {
     const before = new Map(a.tables.map((t) => [t.id, t]));

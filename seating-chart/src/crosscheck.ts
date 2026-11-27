@@ -5,7 +5,7 @@
 import type { Guest, Id, Rsvp } from './types';
 import { toRsvp, type Parsed } from './importer';
 import { scrubText } from './privacy';
-import { familyName, guestKeys, joinName, likelySame, nameKeys, normName } from './util';
+import { combineRsvp, familyName, guestKeys, joinName, likelySame, nameKeys, normName } from './util';
 
 export type CField = 'name' | 'first' | 'last' | 'extId' | 'rsvp' | 'meal' | 'dietary' | 'notes';
 export const CFIELDS: { f: CField; label: string; re: RegExp }[] = [
@@ -60,6 +60,8 @@ export interface Diff {
   field: 'rsvp' | 'meal' | 'dietary';
   from: string;
   to: string;
+  /** Safe to apply without asking (fills a blank or replaces a pending RSVP) */
+  auto?: boolean;
 }
 
 const rsvpWord = (r: Rsvp) => (r === 'yes' ? 'Coming' : r === 'no' ? 'Declined' : 'Pending');
@@ -141,7 +143,12 @@ function sameInitialAndLast(a: string, b: string) {
 
 export function diffsFor(r: CrossRow, g: Guest): Diff[] {
   const d: Diff[] = [];
-  if (r.rsvp && r.rsvp !== g.rsvp) d.push({ field: 'rsvp', from: rsvpWord(g.rsvp), to: rsvpWord(r.rsvp) });
+  if (r.rsvp && r.rsvp !== g.rsvp) {
+    // a real answer beats pending: pending in the list changes nothing; pending in the chart is filled in
+    const one = combineRsvp([g.rsvp, r.rsvp]);
+    if (one === null) d.push({ field: 'rsvp', from: rsvpWord(g.rsvp), to: rsvpWord(r.rsvp) });
+    else if (one !== g.rsvp) d.push({ field: 'rsvp', from: rsvpWord(g.rsvp), to: rsvpWord(r.rsvp), auto: true });
+  }
   if (r.meal && normName(r.meal) !== normName(g.meal)) d.push({ field: 'meal', from: g.meal || '—', to: r.meal });
   if (r.dietary && normName(r.dietary) !== normName(g.dietary)) d.push({ field: 'dietary', from: g.dietary || '—', to: r.dietary });
   return d;

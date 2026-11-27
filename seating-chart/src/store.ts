@@ -79,6 +79,7 @@ export function migrate(p: Partial<Project>): Project {
     tables: (p.tables ?? []).map((t) => splitTableName({ ...tableDefaults(), ...t })),
     elements: p.elements ?? [],
     refs: p.refs ?? [],
+    layouts: p.layouts ?? [],
     seating: p.seating ?? {},
     version: 1,
   };
@@ -146,7 +147,10 @@ export function redo() {
 
 export function loadProject(p: Project) {
   const { project, past } = get();
-  set({ project: migrate(p), past: [...past, project], future: [], selection: null });
+  // saved floor plans survive opening a backup; ones in the file are added alongside
+  const mine = project.layouts ?? [];
+  const theirs = (p.layouts ?? []).filter((l) => !mine.some((m) => m.id === l.id));
+  set({ project: migrate({ ...p, layouts: [...mine, ...theirs] }), past: [...past, project], future: [], selection: null });
 }
 
 let toastN = 0;
@@ -765,3 +769,53 @@ export function alignTables(ids: Id[], mode: AlignMode) {
 }
 
 export { get as getState };
+
+// ---------- saved floor plans ----------
+const plain = <T,>(x: T): T => JSON.parse(JSON.stringify(x));
+
+/** Save the current room and tables under a name (or overwrite an existing saved plan). */
+export function saveLayout(name: string, overwriteId?: Id) {
+  const { project } = get();
+  const savedAt = new Date().toISOString();
+  const snap = { tables: plain(project.tables), elements: plain(project.elements) };
+  update((d) => {
+    d.layouts ??= [];
+    const ex = overwriteId ? d.layouts.find((l) => l.id === overwriteId) : undefined;
+    if (ex) Object.assign(ex, { name, savedAt, ...snap });
+    else d.layouts.push({ id: uid(), name, savedAt, ...snap });
+  });
+  toast(`Saved floor plan "${name}"`, true);
+}
+
+/** Replace the room and tables with a saved plan. Guests stay; seats are kept at tables that still exist. */
+export async function loadLayout(id: Id) {
+  const { project } = get();
+  const l = project.layouts?.find((x) => x.id === id);
+  if (!l) return;
+  const keepIds = new Set(l.tables.map((t) => t.id));
+  const lost = project.tables.filter((t) => !keepIds.has(t.id)).reduce((n, t) => n + (project.seating[t.id] ?? []).filter(Boolean).length, 0);
+  const ok = await ask(`Load "${l.name}"?`, {
+    detail: `This replaces the room and tables on the plan with the saved ones (${l.tables.length} tables). Guests aren't changed${lost ? `; ${lost} seated guest${lost === 1 ? '' : 's'} at tables not in this plan will be unseated` : ''}. Undo is available.`,
+    ok: 'Load floor plan',
+  });
+  if (!ok) return;
+  update((d) => {
+    d.tables = plain(l.tables);
+    d.elements = plain(l.elements);
+    const seating: Project['seating'] = {};
+    for (const t of d.tables) {
+      const arr = (d.seating[t.id] ?? []).slice(0, t.seats);
+      while (arr.length < t.seats) arr.push(null);
+      seating[t.id] = arr;
+    }
+    d.seating = seating;
+  });
+  setSelection(null);
+  toast(`Loaded "${l.name}"`, true);
+}
+
+export async function deleteLayout(id: Id) {
+  const l = get().project.layouts?.find((x) => x.id === id);
+  if (!l || !(await ask(`Delete the saved floor plan "${l.name}"?`, { detail: 'The plan on screen is not affected. Undo is available.', ok: 'Delete', danger: true }))) return;
+  update((d) => void (d.layouts = (d.layouts ?? []).filter((x) => x.id !== id)));
+}

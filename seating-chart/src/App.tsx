@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SavedLayoutsDialog } from './SavedLayouts';
+import { ResetDialog } from './ResetDialog';
 import { deleteSelection, duplicateSelection, getState, redo, setSelection, setTool, setView, undo, update, updateTables, useStore } from './store';
 import { analyse } from './scoring';
 import { useDrag } from './dnd';
@@ -23,7 +25,7 @@ export function App() {
   const future = useStore((s) => s.future.length);
   const toastMsg = useStore((s) => s.toast);
   const sync = useSync();
-  const [dlg, setDlg] = useState<'' | 'import' | 'cross' | 'auto' | 'rules' | 'claude' | 'settings' | 'open' | 'tags'>('');
+  const [dlg, setDlg] = useState<'' | 'import' | 'cross' | 'auto' | 'rules' | 'claude' | 'settings' | 'open' | 'tags' | 'layouts' | 'reset'>('');
   const selection = useStore((s) => s.selection);
   const [mpane, setMpane] = useState<'guests' | 'stage' | 'details'>('stage');
   // analysis is shared by every panel; recomputed when the project changes
@@ -38,9 +40,12 @@ export function App() {
     }
     const open = () => setDlg('open');
     const tags = () => setDlg('tags');
+    const reset = () => setDlg('reset');
     window.addEventListener('app:open-layout', open);
     window.addEventListener('app:tags', tags);
+    window.addEventListener('app:reset', reset);
     return () => {
+      window.removeEventListener('app:reset', reset);
       window.removeEventListener('app:open-layout', open);
       window.removeEventListener('app:tags', tags);
     };
@@ -182,6 +187,9 @@ export function App() {
               <MenuItem icon="flower" onClick={() => (setDlg('tags'), close())}>
                 Manage tags
               </MenuItem>
+              <MenuItem icon="plan" onClick={() => (setDlg('layouts'), close())}>
+                Saved floor plans…
+              </MenuItem>
               <MenuItem icon="layout" onClick={() => (setDlg('open'), close())}>
                 Open layout or backup
               </MenuItem>
@@ -196,6 +204,9 @@ export function App() {
                 All exports…
               </MenuItem>
               <div className="menu-sep" />
+              <MenuItem icon="undo" onClick={() => (setDlg('reset'), close())}>
+                Reset…
+              </MenuItem>
               <MenuItem icon="settings" onClick={() => (setDlg('settings'), close())}>
                 Settings
               </MenuItem>
@@ -238,6 +249,8 @@ export function App() {
       <CrosscheckDialog open={dlg === 'cross'} onClose={() => setDlg('')} />
       <TagManager open={dlg === 'tags'} onClose={() => setDlg('')} />
       <OpenFileDialog open={dlg === 'open'} onClose={() => setDlg('')} />
+      <SavedLayoutsDialog open={dlg === 'layouts'} onClose={() => setDlg('')} />
+      <ResetDialog open={dlg === 'reset'} onClose={() => setDlg('')} />
       <ConfirmHost />
     </div>
   );

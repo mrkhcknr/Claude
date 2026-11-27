@@ -222,6 +222,16 @@ export interface Project {
   settings: Settings;
   imports?: ImportRecord[];
   refs?: RefLayer[];
+  /** Named copies of the room and tables ("Brickyard Wedding") that can be loaded back. */
+  layouts?: SavedLayout[];
+}
+
+export interface SavedLayout {
+  id: Id;
+  name: string;
+  savedAt: string;
+  tables: Table[];
+  elements: RoomElement[];
 }
 
 export type Selection =
