@@ -1,6 +1,6 @@
 import type { Guest, Id, Project, Relation, Table } from './types';
 import { effectiveSeat, effectOf, type Effect } from './relations';
-import { clearanceIssues, joinedGroups, slotsAdjacent } from './geometry';
+import { joinedGroups, slotsAdjacent } from './geometry';
 import { likelySame, tableTags } from './util';
 import { tableName } from './store';
 import { pointsOf, rulesOf } from './rules';
@@ -193,18 +193,6 @@ export function analyse(p: Project) {
   }
   for (const g of declinedSeated) issues.push({ level: 'warn', text: `${g.name} declined but still has a seat`, guestIds: [g.id], tableId: tableOf.get(g.id) });
 
-  // clearance
-  const clr = clearanceIssues(p);
-  const tName = new Map(p.tables.map((t) => [t.id, tableName(t)]));
-  for (const c of clr) {
-    const other = c.otherKind === 'table' ? tName.get(c.otherId) : (p.elements.find((e) => e.id === c.otherId)?.kind ?? 'obstacle');
-    issues.push({
-      level: c.gap === 0 ? 'error' : 'warn',
-      text: c.gap === 0 ? `${tName.get(c.tableId)} overlaps ${other}` : `${tName.get(c.tableId)} is only ${c.gap.toFixed(1)} ft from ${other}`,
-      tableId: c.tableId,
-    });
-  }
-
   // crosscheck discrepancies between imported lists and the chart
   const discrepancies = findDiscrepancies(p);
   for (const d of discrepancies.slice(0, 80)) issues.push({ level: d.kind === 'rsvp' || d.kind === 'unmatched' ? 'warn' : 'info', text: d.text, guestIds: d.guestId ? [d.guestId] : undefined });
@@ -233,7 +221,6 @@ export function analyse(p: Project) {
     discrepancies,
     discByGuest: byGuest(discrepancies),
     tableOf,
-    clearance: clr,
     stats: {
       total: p.guests.length,
       attending: attending.length,

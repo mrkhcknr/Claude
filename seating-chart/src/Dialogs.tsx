@@ -433,7 +433,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
           <NumField value={s.gridSize} onChange={(v) => set({ gridSize: v })} step={0.25} min={0.25} max={10} settings={s} />
         </label>
         <label className="field">
-          <span>Aisle space between tables</span>
+          <span>Gap when adding several tables</span>
           <NumField value={s.clearance} onChange={(v) => set({ clearance: v })} step={0.5} min={0} max={12} settings={s} />
         </label>
       </div>

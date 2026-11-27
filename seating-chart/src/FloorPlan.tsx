@@ -137,7 +137,6 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
   const guestById = useMemo(() => new Map(project.guests.map((x) => [x.id, x])), [project.guests]);
   const happy = useMemo(() => happinessOf(project), [project]);
   const matcher = useMemo(() => guestMatcher(project, filters, analysis.tableOf, analysis.discByGuest), [project, filters, analysis.tableOf]);
-  const clashTables = useMemo(() => new Set(analysis.clearance.map((c) => c.tableId)), [analysis.clearance]);
   const colorOf = useMemo(() => seatColorFn(project), [project]);
   const selIds = new Set(selection?.type === 'table' || selection?.type === 'element' ? selection.ids : []);
   const selGuests = new Set(selection?.type === 'guest' ? selection.ids : []);
@@ -666,11 +665,6 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
               </text>
             </g>
           ))}
-
-          {/* table footprints (clearance warnings) */}
-          {project.tables.map((t) =>
-            clashTables.has(t.id) ? <polygon key={'f' + t.id} className="footprint clash" points={tableFootprint(t).map((q) => `${q.x},${q.y}`).join(' ')} strokeWidth={1.5 * k} style={{ strokeDasharray: `${5 * k} ${4 * k}` }} /> : null,
-          )}
 
           {/* walls, columns, openings */}
           {project.elements.map((el) => {
