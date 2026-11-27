@@ -31,6 +31,8 @@ import {
   updateTables,
   useStore,
   ZONE_PRESETS,
+  tableTitle,
+  hasTableName,
 } from './store';
 import { type Analysis, type Issue } from './scoring';
 import { BONDS, BOND_HELP, BOND_LABEL, SEAT_LABEL, SEAT_RULES } from './relations';
@@ -287,9 +289,16 @@ function TableInspector({ t, analysis }: { t: Table; analysis: Analysis }) {
             </button>
           </div>
         )}
-        <h2 className="insp-title">
-          <TextField className="" value={tableName(t)} placeholder={t.label || 'Name this table'} onCommit={(v) => set(splitTableName({ name: v }))} list="flower-list" />
-        </h2>
+        {hasTableName(t) ? (
+          <>
+            <h2 className="insp-title">{tableTitle(t).main}</h2>
+            {tableTitle(t).sub && <div className="insp-subtitle">{tableTitle(t).sub}</div>}
+          </>
+        ) : (
+          <h2 className="insp-title">
+            <TextField className="" value={tableName(t)} placeholder={t.label || 'Name this table'} onCommit={(v) => set(splitTableName({ name: v }))} list="flower-list" />
+          </h2>
+        )}
         <datalist id="flower-list">
           {FLOWERS.map((f) => (
             <option key={f} value={f} />

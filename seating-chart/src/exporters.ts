@@ -1,6 +1,6 @@
 import type { Guest, Project, Table } from './types';
 import { CHAIR_R, projectBounds, seatLocal, tableFootprint, toWorld } from './geometry';
-import { hasTableName, tableName, toast } from './store';
+import { hasTableName, tableName, tableTitle, toast } from './store';
 import { getDownloads } from './sync';
 import { download, firstName, initials, lastName, slug } from './util';
 import { groupTags } from './scoring';
@@ -135,10 +135,12 @@ export function planSvg(p: Project, opts: { names?: boolean; scale?: number } = 
           ? `<ellipse rx="${t.w / 2}" ry="${t.h / 2}"`
           : `<rect x="${-t.w / 2}" y="${-t.h / 2}" width="${t.w}" height="${t.h}" rx="0.15"`;
     parts.push(`<g transform="translate(${t.x} ${t.y}) rotate(${t.rotation})">${shape} fill="${C.table}" stroke="${C.tableLine}" stroke-width="0.09"/></g>`);
-    const nm = tableName(t);
+    const { main: nm, sub: en } = tableTitle(t);
     const sub = hasTableName(t) ? t.label : '';
-    parts.push(`<text x="${t.x}" y="${t.y + (sub ? -0.1 : 0.35)}" text-anchor="middle" font-family="Georgia, serif" font-size="1" fill="${C.ink}">${esc(nm)}</text>`);
-    if (sub) parts.push(`<text x="${t.x}" y="${t.y + 0.85}" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="0.55" letter-spacing="0.05" fill="${C.muted}">${esc(sub.toUpperCase())}</text>`);
+    const y0 = t.y + (en ? -0.5 : sub ? -0.1 : 0.35);
+    parts.push(`<text x="${t.x}" y="${y0}" text-anchor="middle" font-family="Georgia, serif" font-size="1" fill="${C.ink}">${esc(nm)}</text>`);
+    if (en) parts.push(`<text x="${t.x}" y="${y0 + 0.8}" text-anchor="middle" font-family="Georgia, serif" font-style="italic" font-size="0.6" fill="${C.ink}">${esc(en)}</text>`);
+    if (sub) parts.push(`<text x="${t.x}" y="${(en ? y0 + 0.8 : t.y) + 0.85}" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="0.55" letter-spacing="0.05" fill="${C.muted}">${esc(sub.toUpperCase())}</text>`);
     const seats = p.seating[t.id] ?? [];
     seatLocal(t).forEach((lp, i) => {
       const wp = toWorld(t, lp);
@@ -192,7 +194,7 @@ export function seatingChartHtml(p: Project) {
   const cards = tables
     .map((t) => {
       const gs = (p.seating[t.id] ?? []).map((x) => (x ? byId.get(x) : undefined)).filter((g): g is Guest => !!g);
-      return `<section class="card"><h3>${esc(tableName(t))}</h3>${hasTableName(t) ? `<div class="num">${esc(t.label)}</div>` : ''}<ol>${gs.map((g) => `<li>${esc(g.name)}${g.meal ? ` <span class="meal">${esc(g.meal)}</span>` : ''}${g.dietary ? ` <span class="diet">${esc(g.dietary)}</span>` : ''}</li>`).join('')}</ol></section>`;
+      return `<section class="card"><h3>${esc(tableTitle(t).main)}</h3>${tableTitle(t).sub ? `<div class="en">${esc(tableTitle(t).sub)}</div>` : ''}${hasTableName(t) ? `<div class="num">${esc(t.label)}</div>` : ''}<ol>${gs.map((g) => `<li>${esc(g.name)}${g.meal ? ` <span class="meal">${esc(g.meal)}</span>` : ''}${g.dietary ? ` <span class="diet">${esc(g.dietary)}</span>` : ''}</li>`).join('')}</ol></section>`;
     })
     .join('');
   const escort = p.guests
@@ -212,7 +214,7 @@ h1{font-size:40px}h2{font-size:26px;margin:36px 0 12px;break-after:avoid}
 .plan svg{width:100%;height:auto;border:1px solid #dfe6e2;border-radius:8px}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
 .card{border:1px solid #dfe6e2;border-radius:10px;padding:12px 14px;break-inside:avoid}
-.card h3{font-size:22px}.num{color:#6b7a74;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+.card h3{font-size:22px;margin-bottom:0}.en{font-style:italic;font-size:15px;color:#3d4a45;margin:2px 0 4px}.num{color:#6b7a74;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
 .card ol{margin:8px 0 0;padding-left:20px}.meal{color:#6b7a74;font-size:12px}.diet{color:#a35a1e;font-size:12px}
 table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:5px 8px;border-bottom:1px solid #e7ece9}th{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#6b7a74}
 .tot td{font-weight:700}.escort{columns:2;column-gap:28px}.escort table{break-inside:auto}

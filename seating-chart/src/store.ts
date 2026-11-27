@@ -505,6 +505,15 @@ export function tableName(t: Named, lang: TableLang = curLang()) {
   return [zh, en].filter(Boolean).join(' ') || t.label;
 }
 
+/** A table's title in two lines: the Chinese flower name as the title, the English one beneath it. */
+export function tableTitle(t: Named, lang: TableLang = curLang()): { main: string; sub: string } {
+  const zh = t.nameZh?.trim() ?? '',
+    en = t.nameEn?.trim() ?? '';
+  if (lang === 'en') return { main: en || zh || t.label, sub: '' };
+  if (lang === 'zh') return { main: zh || en || t.label, sub: '' };
+  return { main: zh || en || t.label, sub: zh && en ? en : '' };
+}
+
 export const hasTableName = (t: Named) => !!(t.nameZh?.trim() || t.nameEn?.trim());
 
 export function setTableLang(lang: TableLang) {

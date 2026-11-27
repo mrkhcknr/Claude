@@ -736,9 +736,11 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
                       const fsMain = Math.min(nameSize, room / Math.max(1, em(main)));
                       const lat = shortLatin(latin);
                       const fsLat = Math.min(Math.max(0.5, 9 * k), room / Math.max(1, em(lat)));
-                      const showLat = !!latin && camera.scale >= 11;
-                      const showNum = camera.scale >= 8;
+                      // lines stack across the table's depth: Chinese title, then English, then the number if there's room
+                      const depth = (t.shape === 'round' ? t.w : t.h) * 0.92;
                       const small = Math.max(0.45, 8 * k);
+                      const showLat = !!latin && fsLat * camera.scale >= 6.5 && fsMain * 1.1 + fsLat * 1.2 <= depth;
+                      const showNum = camera.scale >= 8 && fsMain * 1.1 + (showLat ? fsLat * 1.2 : 0) + small * 1.3 <= depth;
                       return (
                         <>
                           <text className="tname" textAnchor="middle" y={showLat ? -fsMain * 0.35 : showNum ? -fsMain * 0.1 : fsMain * 0.35} style={{ fontSize: fsMain }}>

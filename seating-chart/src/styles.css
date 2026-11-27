@@ -2623,3 +2623,19 @@ select.cell-input.rsvp-pending {
 .plan .seat.block-slide circle.chair {
   vector-effect: non-scaling-stroke;
 }
+.insp-subtitle {
+  margin: -4px 0 8px;
+  font-style: italic;
+  color: var(--ink-2);
+  font-size: 15px;
+}
+.tsub {
+  display: block;
+  font-style: italic;
+  font-weight: 400;
+  font-size: 0.8em;
+  color: var(--ink-2);
+}
+td .tsub {
+  font-size: 12px;
+}

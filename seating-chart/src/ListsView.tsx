@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Guest } from './types';
-import { hasTableName, setSelection, tableName, updateGuests, useStore } from './store';
+import { hasTableName, setSelection, tableName, tableTitle, updateGuests, useStore } from './store';
 import { guestMatcher, useFilters, activeCount, clearFilters } from './filters';
 import { backupJson, catererCsv, fileBase, guestListCsv, layoutJson, mealSummary, planPng, planSvg, saveFile, seatingChartHtml, tablesCsv } from './exporters';
 import { lastName } from './util';
@@ -63,7 +63,10 @@ function ByTable({ analysis }: { analysis: Analysis }) {
           return (
             <section key={t.id} className="tcard">
               <header>
-                <h3>{tableName(t)}</h3>
+                <h3>
+                  {tableTitle(t).main}
+                  {tableTitle(t).sub && <span className="tsub">{tableTitle(t).sub}</span>}
+                </h3>
                 {hasTableName(t) && <span className="label">{t.label}</span>}
                 <span className="spacer" style={{ flex: 1 }} />
                 <span className="badge num">
@@ -202,7 +205,9 @@ function Meals() {
           {rows.map((r) => (
             <tr key={r.t.id}>
               <td>
-                {tableName(r.t)} {hasTableName(r.t) && <span className="muted">· {r.t.label}</span>}
+                {tableTitle(r.t).main}
+                {tableTitle(r.t).sub && <span className="tsub">{tableTitle(r.t).sub}</span>}
+                {hasTableName(r.t) && <span className="muted"> · {r.t.label}</span>}
               </td>
               <td>{r.gs.length}</td>
               {r.counts.map((c, i) => (
