@@ -63,6 +63,9 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
 
   // fixed guests: seated at a locked/excluded table, pinned, or (keep mode) anyone seated
   const fixedAt = new Int32Array(N).fill(-1);
+  // pinning anyone keeps their whole household in place, so a pinned partner never ends up apart from theirs
+  const pinnedParty = new Set(guests.filter((g) => g.pinned && g.party).map((g) => g.party));
+  const isPinned = (g: (typeof guests)[number]) => g.pinned || (!!g.party && pinnedParty.has(g.party));
   const fixedElsewhere = new Uint8Array(N);
   for (const [tid, arr] of Object.entries(p.seating)) {
     for (const gid of arr) {
@@ -70,7 +73,7 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
       const i = gIndex.get(gid)!;
       const ti = tIndex.get(tid);
       if (ti === undefined) fixedElsewhere[i] = 1;
-      else if (opt.mode !== 'reseat' || guests[i].pinned) fixedAt[i] = ti;
+      else if (opt.mode !== 'reseat' || isPinned(guests[i])) fixedAt[i] = ti;
     }
   }
   const movable = (i: number) => fixedAt[i] < 0 && !fixedElsewhere[i];
@@ -240,7 +243,7 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
     const managed = groupsV.flat();
     // in "improve" mode everyone already seated may move too (except pinned guests and locked tables)
     const fixed = new Set<Id>();
-    for (let i = 0; i < N; i++) if (opt.mode === 'improve' ? guests[i].pinned || fixedElsewhere[i] : !movable(i)) fixed.add(guests[i].id);
+    for (let i = 0; i < N; i++) if (opt.mode === 'improve' ? isPinned(guests[i]) || fixedElsewhere[i] : !movable(i)) fixed.add(guests[i].id);
     const apartIds = new Set<string>();
     for (let a = 0; a < N; a++)
       for (let b = a + 1; b < N; b++)

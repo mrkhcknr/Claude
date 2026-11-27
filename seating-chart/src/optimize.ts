@@ -58,7 +58,9 @@ function improveOnce(p: Project, seating: Project['seating'], ctx: HappinessCont
   const partnerOf = new Map<Id, Id>();
   const frozen = new Set<Id>(o.fixed);
   for (const m of byParty.values()) {
-    if (m.length === 2 && next(seatOf.get(m[0])!).includes(seatOf.get(m[1])!)) {
+    // a couple moves as a pair, so if either partner is pinned, neither moves
+    if (m.length === 2 && m.some((g) => o.fixed.has(g))) m.forEach((g) => frozen.add(g));
+    else if (m.length === 2 && next(seatOf.get(m[0])!).includes(seatOf.get(m[1])!)) {
       partnerOf.set(m[0], m[1]);
       partnerOf.set(m[1], m[0]);
     } else if (m.length > 1) m.forEach((g) => frozen.add(g));

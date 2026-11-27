@@ -758,7 +758,7 @@ function GuestInspector({ g, analysis }: { g: Guest; analysis: Analysis }) {
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <span className="label">Guest</span>
           <span className="row" style={{ gap: 2 }}>
-            <button className="icon-btn sm" title={g.pinned ? 'Unpin (auto-seat may move them)' : 'Pin seat (auto-seat keeps them here)'} aria-pressed={g.pinned} onClick={() => set({ pinned: !g.pinned })}>
+            <button className="icon-btn sm" title={g.pinned ? 'Unpin (auto-seat may move them)' : 'Pin seat (auto-seat keeps them and their household here)'} aria-pressed={g.pinned} onClick={() => set({ pinned: !g.pinned })}>
               <Icon name="pin" size="sm" />
             </button>
             <button className="icon-btn sm" title="Delete guest" onClick={deleteSelection}>
