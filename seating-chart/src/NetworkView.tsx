@@ -9,6 +9,7 @@ import { clamp, firstName, hueColor } from './util';
 import { suggestIntroductions } from './introductions';
 import { Icon } from './ui';
 import { tagColor as tagColorFor } from './tags';
+import { onSafariPinch, wheelIntent } from './wheel';
 import { SearchBox, FilterSheet } from './GuestPanel';
 
 type Brush = 'move' | Bond | 'erase' | 'lasso';
@@ -331,19 +332,31 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
   useEffect(() => {
     const el = svg.current;
     if (!el) return;
-    const wheel = (e: WheelEvent) => {
-      e.preventDefault();
+    const zoom = (f: number, cx: number, cy: number) => {
       const r = el.getBoundingClientRect();
-      const px = e.clientX - r.left,
-        py = e.clientY - r.top;
+      const px = cx - r.left,
+        py = cy - r.top;
       userMoved.current = true;
       setCam((c) => {
-        const k = clamp(c.k * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), 0.15, 4);
+        const k = clamp(c.k * f, 0.15, 4);
         return { k, x: px - ((px - c.x) * k) / c.k, y: py - ((py - c.y) * k) / c.k };
       });
     };
+    // trackpad: two-finger swipe pans, pinch zooms; mouse wheel zooms
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const w = wheelIntent(e);
+      if (w.kind === 'pan') {
+        userMoved.current = true;
+        setCam((c) => ({ ...c, x: c.x - w.dx, y: c.y - w.dy }));
+      } else zoom(w.factor, e.clientX, e.clientY);
+    };
     el.addEventListener('wheel', wheel, { passive: false });
-    return () => el.removeEventListener('wheel', wheel);
+    const offPinch = onSafariPinch(el, zoom);
+    return () => {
+      el.removeEventListener('wheel', wheel);
+      offPinch();
+    };
   }, []);
 
   // two-finger pinch to zoom (and pan) on touch screens

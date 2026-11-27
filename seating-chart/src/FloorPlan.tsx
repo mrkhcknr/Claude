@@ -30,6 +30,7 @@ import {
 import { CHAIR_R, isCircular, projectBounds, rotate, seatLocal, snapToWall, tableFootprint, toWorld, type Pt } from './geometry';
 import { useDrag, startGuestDrag, cancelGuestDrag } from './dnd';
 import { planBlockMove, setPickMode, usePick } from './seatMove';
+import { onSafariPinch, wheelIntent } from './wheel';
 import { useFilters, guestMatcher, allTags } from './filters';
 import { tagColor as tagColorFor } from './tags';
 import { buildAffinity, groupTags, type Analysis } from './scoring';
@@ -178,19 +179,25 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
   useEffect(() => {
     const el = svg.current;
     if (!el) return;
+    // trackpad: two-finger swipe pans, pinch zooms; mouse wheel zooms
     const wheel = (e: WheelEvent) => {
       e.preventDefault();
       const r = el.getBoundingClientRect();
-      if (e.shiftKey) {
+      const w = wheelIntent(e);
+      if (w.kind === 'pan') {
         const cam = getState().camera;
-        setCamera({ ...cam, x: cam.x + (e.deltaY || e.deltaX) / cam.scale, y: cam.y });
-        return;
-      }
-      const d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
-      zoomAt(Math.exp(-d * (e.ctrlKey ? 0.01 : 0.0015)), e.clientX - r.left, e.clientY - r.top);
+        setCamera({ ...cam, x: cam.x + w.dx / cam.scale, y: cam.y + w.dy / cam.scale });
+      } else zoomAt(w.factor, e.clientX - r.left, e.clientY - r.top);
     };
     el.addEventListener('wheel', wheel, { passive: false });
-    return () => el.removeEventListener('wheel', wheel);
+    const offPinch = onSafariPinch(el, (f, cx, cy) => {
+      const r = el.getBoundingClientRect();
+      zoomAt(f, cx - r.left, cy - r.top);
+    });
+    return () => {
+      el.removeEventListener('wheel', wheel);
+      offPinch();
+    };
   });
   useEffect(() => {
     const h = () => fitView();
