@@ -1280,6 +1280,11 @@ function HappinessSection({ g }: { g: Guest }) {
       <h3>
         Happiness <span className="badge num">{Math.round(h.points)} pts</span>
       </h3>
+      {h.tablePts > 0 && (
+        <p className="muted small" style={{ margin: '0 0 4px' }}>
+          +{h.tablePts} for sitting at a table tagged for them
+        </p>
+      )}
       {h.items.length ? (
         <ul className="happy-list">
           {h.items.slice(0, 8).map((x, i) => (

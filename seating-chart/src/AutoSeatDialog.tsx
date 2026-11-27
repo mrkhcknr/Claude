@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { autoSeat, type AutoSeatOptions, type AutoSeatResult } from './autoSeat';
 import { getState, seatAtTable, setRelation, swapGuests, tableName, toast, update, updateTables, useStore } from './store';
-import { DEFAULT_POINTS, POINT_KINDS, POINT_LABEL, pointsOf, rulesOf, type PointKind, type PointRow, type SeatingRules } from './rules';
+import { DEFAULT_POINTS, POINT_KINDS, POINT_LABEL, pointsOf, rulesOf, type PointKind, type PointRow, type SeatingRules, DEFAULT_TABLE_POINTS } from './rules';
 import { happinessOf } from './happiness';
 import { errText, getSample, proposeFromIntent, reviewSeating, type Proposal, type Suggestion } from './claude';
 import { describeTie } from './relations';
@@ -67,13 +67,13 @@ function SeatTab({ onDone }: { onDone: () => void }) {
     <>
       <ol className="steps" style={{ margin: 0, paddingLeft: 18, color: 'var(--ink-2)' }}>
         <li>
-          <b>Table tags.</b> Guests whose tags match a table's tags sit there, households together.
+          <b>Table tags.</b> Guests start at a table whose tags match theirs, households together. Tags orient the layout; they aren't requirements.
         </li>
         <li>
           <b>Connections.</b> Everyone else goes where they have the most relationships, household members or shared tags.
         </li>
         <li>
-          <b>Happiness.</b> Guests and couples swap chairs while that raises total happiness points (see Rules).
+          <b>Happiness.</b> Guests and couples swap chairs, even to another table, while that raises total happiness points (see Rules).
         </li>
       </ol>
       <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
@@ -153,8 +153,8 @@ function RulesTab() {
   return (
     <>
       <p style={{ margin: 0, color: 'var(--ink-2)' }}>
-        Auto-seat follows two steps: <b>table tags</b> first, then <b>connections</b> (relationships and households). Give tables tags in the table panel, and draw relationships in the
-        social graph. These switches are the only other rules.
+        Auto-seat starts people at <b>tables tagged for them</b>, seats everyone else by <b>connections</b>, then swaps chairs to raise happiness. Table tags are a nudge, not a
+        requirement. Only these two switches are hard rules.
       </p>
       <div style={{ display: 'grid', gap: 8 }}>
         <label className="check">
@@ -165,6 +165,21 @@ function RulesTab() {
         </label>
       </div>
       <PointsTable />
+      <label className="field">
+        <span>Sitting at a table tagged for you</span>
+        <span className="muted" style={{ fontSize: 12, textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
+          Points each guest earns at a matching table. Higher keeps tag groups at their tables; 0 means tags only set the starting layout.
+        </span>
+        <input
+          className="input num"
+          type="number"
+          min={0}
+          step={1}
+          style={{ width: 90 }}
+          value={R.tablePoints ?? DEFAULT_TABLE_POINTS}
+          onChange={(e) => set({ tablePoints: Math.max(0, +e.target.value || 0) })}
+        />
+      </label>
       <p className="muted" style={{ margin: 0, fontSize: 12 }}>
         Rules are saved with the seating chart, so anyone you share it with uses the same ones.
       </p>

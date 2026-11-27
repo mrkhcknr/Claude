@@ -1,7 +1,7 @@
 /**
  * Improve a valid seating by swapping guests (and couples, as a pair) between chairs, keeping every
- * swap that raises total happiness. Hard rules are never broken: couples stay side by side, guests
- * seated by table tags stay at a table tagged for them, "never same table" holds, and fixed guests
+ * swap that raises total happiness. Hard rules are never broken: couples stay side by side,
+ * "never same table" holds, and fixed guests
  * (pinned, locked tables, or already seated in "only unseated" mode) don't move.
  */
 import type { Id, Project, Table } from './types';
@@ -11,8 +11,6 @@ import { guestHappiness, seatMaps, type HappinessContext } from './happiness';
 export interface ImproveOptions {
   tables: Table[];
   fixed: Set<Id>;
-  /** Guests who must stay at one of these tables (seated there by table tags) */
-  allowed: Map<Id, Set<Id>>;
   /** "never same table" pairs, as "a|b" with a < b */
   apart: Set<string>;
   iterations?: number;
@@ -69,7 +67,6 @@ function improveOnce(p: Project, seating: Project['seating'], ctx: HappinessCont
   const movers = [...seatOf.keys()].filter((g) => !frozen.has(g));
   if (!movers.length) return { seating: out, gain: 0 };
 
-  const tableGuests = (t: string) => [...occupant].filter(([s]) => tableOfSeat(s) === t).map(([, g]) => g);
   // guests whose happiness can change when these seats change: everyone at those tables and next to them
   const affected = (changed: string[]) => {
     const set = new Set<Id>();
@@ -98,11 +95,19 @@ function improveOnce(p: Project, seating: Project['seating'], ctx: HappinessCont
     }
     return s;
   };
+  // "never same table" partners of each guest, so a swap is checked without scanning every chair
+  const apartOf = new Map<Id, Id[]>();
+  for (const k of o.apart) {
+    const [x, y] = k.split('|');
+    apartOf.set(x, [...(apartOf.get(x) ?? []), y]);
+    apartOf.set(y, [...(apartOf.get(y) ?? []), x]);
+  }
   const okAt = (g: Id, seat: string) => {
     const t = tableOfSeat(seat);
-    const allow = o.allowed.get(g);
-    if (allow && !allow.has(t)) return false;
-    for (const other of tableGuests(t)) if (other !== g && o.apart.has(g < other ? g + '|' + other : other + '|' + g)) return false;
+    for (const other of apartOf.get(g) ?? []) {
+      const s2 = seatOf.get(other);
+      if (s2 && tableOfSeat(s2) === t) return false;
+    }
     return true;
   };
   /** Apply a seat → guest assignment (null empties the seat); returns the undo list. */
@@ -124,7 +129,7 @@ function improveOnce(p: Project, seating: Project['seating'], ctx: HappinessCont
   };
 
   const rnd = mulberry32(o.seed ?? 7);
-  const iters = o.iterations ?? Math.min(40000, 300 * movers.length);
+  const iters = o.iterations ?? Math.min(40000, 100 * movers.length);
   let gain = 0,
     bestGain = 0;
   // start from the input arrangement, so a run that finds nothing better changes nothing

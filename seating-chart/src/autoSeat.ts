@@ -39,7 +39,8 @@ export interface AutoSeatResult {
 
 /**
  * Two plain steps, in order:
- *   1. Table tags: everyone whose tags match a table's tags sits there (households stay together).
+ *   1. Table tags: everyone whose tags match a table's tags starts there (households stay together).
+ *      This only orients the layout; step 3 may move them if that makes guests happier.
  *      Scarce tags go first; if a tag has more guests than seats, the rest fall through to step 2.
  *   2. Connections: everyone else goes, household by household, to the table where they have the
  *      most relationships or household members; failing that, next to people who share a tag;
@@ -182,7 +183,7 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
   }
   const tagWanted = step1.reduce((s, k) => s + units[k].length, 0);
   const tagMatched = step1.filter((k) => unitTable[k] >= 0).reduce((s, k) => s + units[k].length, 0);
-  if (tagMatched < tagWanted) warnings.push(`${tagWanted - tagMatched} guest(s) couldn't sit at a table tagged for them (not enough seats, or no side-by-side chairs left for a couple), so they were seated by their connections.`);
+  if (tagMatched < tagWanted) warnings.push(`${tagWanted - tagMatched} guest(s) didn't fit at a table tagged for them (not enough seats, or no side-by-side chairs left for a couple), so they were seated by their connections.`);
 
   // ---- step 2: everyone else, by connections (most connected first)
   const conn = units.map((u) => u.reduce((s, i) => s + W.subarray(i * N, i * N + N).reduce((a, b) => a + Math.max(0, b), 0), 0));
@@ -230,25 +231,13 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
   const unplaced = units.filter((_, k) => unitTable[k] < 0).flat().map((i) => guests[i]);
   if (unplaced.length) warnings.push(`${unplaced.length} guest(s) didn't fit — add tables or seats.`);
 
-  // ---- step 3: swap guests between chairs to raise total happiness, within the same hard rules
+  // ---- step 3: swap guests between chairs to raise total happiness, within the same hard rules.
+  // Table tags are only a nudge here (a few points for sitting at a matching table), never a requirement.
   let finalSeating = seating;
   const before = happinessOf(p, seating).total;
   let after = before;
   if (opt.optimize !== false) {
     const managed = groupsV.flat();
-    // anyone sitting at a table tagged for them may only move between tables tagged for them
-    const tableIndexOf = new Map<Id, number>();
-    groupsV.forEach((g, t) => g.forEach((x) => tableIndexOf.set(x.id, t)));
-    const allowedTables = new Map<Id, Set<Id>>();
-    for (const [tid, arr] of Object.entries(seating)) {
-      const t = tableIndexOf.get(tid);
-      if (t === undefined || !tagsOfTable[t].size) continue;
-      for (const gid of arr) {
-        const i = gid ? gIndex.get(gid) : undefined;
-        if (i === undefined || !matchesTable(i, t)) continue;
-        allowedTables.set(guests[i].id, new Set(groupsV.flatMap((g, k) => (matchesTable(i, k) ? g.map((x) => x.id) : []))));
-      }
-    }
     // in "improve" mode everyone already seated may move too (except pinned guests and locked tables)
     const fixed = new Set<Id>();
     for (let i = 0; i < N; i++) if (opt.mode === 'improve' ? guests[i].pinned || fixedElsewhere[i] : !movable(i)) fixed.add(guests[i].id);
@@ -261,7 +250,7 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
           apartIds.add(x < y ? x + '|' + y : y + '|' + x);
         }
     const ctx = happinessContext(p, managed, guests);
-    finalSeating = improveSeating(p, seating, ctx, { tables: managed, fixed, allowed: allowedTables, apart: apartIds, ...(opt.mode === 'improve' ? { moveCost: { table: 2, seat: 0.5 } } : {}) }).seating;
+    finalSeating = improveSeating(p, seating, ctx, { tables: managed, fixed, apart: apartIds, ...(opt.mode === 'improve' ? { moveCost: { table: 2, seat: 0.5 } } : {}) }).seating;
     after = happinessOf(p, finalSeating).total;
   }
   // who moved, compared with the seating before this run

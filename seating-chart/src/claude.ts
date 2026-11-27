@@ -106,7 +106,7 @@ Relationships: partner (a couple; seated side by side), family, friend, introduc
 Optional seating rule on a tie: beside = adjacent chairs; together = same table; apart = never the same table.
 Context = how they know each other or where they work (e.g. "Fire Island", "Google"); contexts also become guest tags.
 
-TABLE TAGS (a table is for guests with any of these tags; this is a hard rule): ${p.tables.filter((t) => t.reservedFor.trim()).map((t) => `${r.tid.get(t.id)} ${t.reservedFor}`).join('; ') || 'none'}
+TABLE TAGS (a table is meant for guests with any of these tags; a strong preference, not a rule): ${p.tables.filter((t) => t.reservedFor.trim()).map((t) => `${r.tid.get(t.id)} ${t.reservedFor}`).join('; ') || 'none'}
 
 CURRENT HAPPINESS POINTS: ${JSON.stringify(cur)}
 ${POINTS_DOC}

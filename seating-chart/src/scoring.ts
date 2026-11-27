@@ -145,7 +145,7 @@ export function analyse(p: Project) {
     const res = tableTags(r.table).join(' / ');
     if (res) {
       const off = r.guests.filter((g) => !matchesTableTags(g, r.table));
-      if (off.length) issues.push({ level: 'warn', text: `${off.length} guest${off.length === 1 ? '' : 's'} at ${tableName(r.table)} ${off.length === 1 ? "isn't" : "aren't"} tagged ${tableTags(r.table).map((x) => `"${x}"`).join(' or ')}`, tableId: r.table.id, guestIds: off.map((g) => g.id) });
+      if (off.length) issues.push({ level: 'info', text: `${off.length} guest${off.length === 1 ? '' : 's'} at ${tableName(r.table)} ${off.length === 1 ? "isn't" : "aren't"} tagged ${tableTags(r.table).map((x) => `"${x}"`).join(' or ')}`, tableId: r.table.id, guestIds: off.map((g) => g.id) });
     }
   }
 

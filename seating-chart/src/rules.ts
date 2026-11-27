@@ -1,6 +1,6 @@
 /**
  * Auto-seat settings. Table tags and relationships do most of the work; these are the only knobs:
- * two hard rules and the happiness points table. Saved with the chart, so everyone sharing it uses the same ones.
+ * two hard rules, the happiness points table and how much a matching table tag is worth. Saved with the chart, so everyone sharing it uses the same ones.
  */
 export interface SeatingRules {
   /** Couples and households always get side-by-side chairs */
@@ -9,17 +9,20 @@ export interface SeatingRules {
   apartHard: boolean;
   /** Happiness points by relationship and distance (missing rows use the defaults) */
   points?: Partial<Record<PointKind, PointRow>>;
+  /** Points a guest earns for sitting at a table tagged for them. A nudge, not a rule: 0 = tags only set the starting layout. */
+  tablePoints?: number;
 }
 
 export const DEFAULT_RULES: SeatingRules = {
   couplesSideBySide: true,
   apartHard: true,
 };
+export const DEFAULT_TABLE_POINTS = 5;
 
 /** Older charts stored extra weights here; they're ignored. */
 export const rulesOf = (s: { rules?: Partial<SeatingRules> }): SeatingRules => {
   const r = s.rules ?? {};
-  return { couplesSideBySide: r.couplesSideBySide ?? true, apartHard: r.apartHard ?? true, points: r.points };
+  return { couplesSideBySide: r.couplesSideBySide ?? true, apartHard: r.apartHard ?? true, points: r.points, tablePoints: r.tablePoints };
 };
 
 export type PointKind = 'partner' | 'family' | 'friend' | 'introduce' | 'tag' | 'tension';
