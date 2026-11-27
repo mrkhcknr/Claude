@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { autoSeat, type AutoSeatOptions, type AutoSeatResult } from './autoSeat';
 import { getState, seatAtTable, setRelation, swapGuests, tableName, toast, update, updateTables, useStore } from './store';
-import { DEFAULT_RULES, PRESETS, SLIDERS, rulesOf, type SeatingRules } from './rules';
+import { SLIDERS, rulesOf, type SeatingRules } from './rules';
 import { errText, getSample, proposeFromIntent, reviewSeating, type Proposal, type Suggestion } from './claude';
 import { describeTie } from './relations';
 import { allTags } from './filters';
@@ -39,14 +39,14 @@ export function AutoSeatDialog({ open, onClose, initialTab = 'seat' }: { open: b
 // ---------------- run ----------------
 function SeatTab({ onDone }: { onDone: () => void }) {
   const project = useStore((s) => s.project);
-  const R = rulesOf(project.settings);
   const [opt, setOpt] = useState<AutoSeatOptions>({ mode: 'keep', includePending: false });
   const [res, setRes] = useState<AutoSeatResult | null>(null);
   const [running, setRunning] = useState(false);
   const seatedNow = Object.values(project.seating).flat().filter(Boolean).length;
+  const seatedSet = new Set(Object.values(project.seating).flat().filter(Boolean));
+  const unseatedNow = project.guests.filter((g) => (g.rsvp === 'yes' || (opt.includePending && g.rsvp === 'pending')) && !seatedSet.has(g.id)).length;
   const pinned = project.guests.filter((g) => g.pinned).length;
   const locked = project.tables.filter((t) => t.locked).length;
-  const setRule = (p: Partial<SeatingRules>) => update((d) => void (d.settings.rules = { ...(d.settings.rules ?? {}), ...p }));
   function run() {
     setRunning(true);
     setRes(null);
@@ -65,36 +65,35 @@ function SeatTab({ onDone }: { onDone: () => void }) {
   }
   return (
     <>
-      <p style={{ margin: 0, color: 'var(--ink-2)' }}>
-        Auto-seat weighs everyone's ties, groups and sides using your <b>rules</b>, then orders the chairs at each table so the closest pairs sit side by side. Pinned guests and locked tables
-        never move.
+      <ol className="steps" style={{ margin: 0, paddingLeft: 18, color: 'var(--ink-2)' }}>
+        <li>
+          <b>Table tags first.</b> Guests whose tags match a table's tags sit there, households together. If a tag has more guests than seats, the rest go to step 2.
+        </li>
+        <li>
+          <b>Then connections.</b> Everyone else goes to the table where they have the most relationships or household members, then next to people who share a tag, then any free seat.
+        </li>
+      </ol>
+      <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
+        Always: "never same table" is respected, pinned guests and locked tables stay put, and couples and households get side-by-side chairs.
       </p>
-      <div className="grid2">
-        <div className="field">
-          <span>Who to place</span>
-          <div className="seg">
-            <button aria-pressed={opt.mode === 'keep'} onClick={() => setOpt({ ...opt, mode: 'keep' })}>
-              Only unseated
-            </button>
-            <button aria-pressed={opt.mode === 'reseat'} onClick={() => setOpt({ ...opt, mode: 'reseat' })}>
-              Re-seat everyone
-            </button>
-          </div>
-          <span className="muted" style={{ fontSize: 12, textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
-            {seatedNow} seated now · {pinned} pinned · {locked} locked tables
+      <div className="field">
+        <span>Who to place</span>
+        <div className="seg">
+          <button aria-pressed={opt.mode === 'keep'} onClick={() => setOpt({ ...opt, mode: 'keep' })}>
+            Only unseated
+          </button>
+          <button aria-pressed={opt.mode === 'reseat'} onClick={() => setOpt({ ...opt, mode: 'reseat' })}>
+            Re-seat everyone
+          </button>
+        </div>
+        <span className="muted" style={{ fontSize: 12, textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
+          {seatedNow} seated now · {pinned} pinned · {locked} locked tables
+        </span>
+        {opt.mode === 'keep' && unseatedNow === 0 && (
+          <span className="callout warn" style={{ fontSize: 12.5, textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
+            Everyone coming already has a seat, so "Only unseated" won't change anything. Choose "Re-seat everyone" to apply new table tags.
           </span>
-        </div>
-        <div className="field">
-          <span>Table fill</span>
-          <div className="seg">
-            <button aria-pressed={R.balance === 'even'} onClick={() => setRule({ balance: 'even' })}>
-              Spread evenly
-            </button>
-            <button aria-pressed={R.balance === 'full'} onClick={() => setRule({ balance: 'full' })}>
-              Fill tables
-            </button>
-          </div>
-        </div>
+        )}
       </div>
       <Placements />
       <label className="check">
@@ -105,6 +104,11 @@ function SeatTab({ onDone }: { onDone: () => void }) {
           <b>
             Placed {res.placed} guests{res.unplaced.length ? `, ${res.unplaced.length} didn't fit` : ''}.
           </b>
+          {res.tagWanted > 0 && (
+            <span>
+              {res.tagMatched} of {res.tagWanted} guests with a tagged table are at one.
+            </span>
+          )}
           {res.warnings.map((w, i) => (
             <span key={i}>{w}</span>
           ))}
@@ -128,75 +132,20 @@ function RulesTab() {
   const project = useStore((s) => s.project);
   const R = rulesOf(project.settings);
   const set = (p: Partial<SeatingRules>) => update((d) => void (d.settings.rules = { ...(d.settings.rules ?? {}), ...p }));
-  const changed = (Object.keys(DEFAULT_RULES) as (keyof SeatingRules)[]).filter((k) => R[k] !== DEFAULT_RULES[k]).length;
   return (
     <>
-      <div className="row">
-        <span className="label">Presets</span>
-        {PRESETS.map((p) => (
-          <button key={p.name} className="chip" title={p.help} onClick={() => update((d) => void (d.settings.rules = { ...p.rules }))}>
-            {p.name}
-          </button>
-        ))}
-        <span className="spacer" style={{ flex: 1 }} />
-        <button className="btn ghost sm" disabled={!changed} onClick={() => update((d) => void (d.settings.rules = {}))}>
-          Reset {changed ? `(${changed} changed)` : ''}
-        </button>
+      <p style={{ margin: 0, color: 'var(--ink-2)' }}>
+        Auto-seat follows two steps: <b>table tags</b> first, then <b>connections</b> (relationships and households). Give tables tags in the table panel, and draw relationships in the
+        social graph. These switches are the only other rules.
+      </p>
+      <div style={{ display: 'grid', gap: 8 }}>
+        <label className="check">
+          <input type="checkbox" className="switch" checked={R.couplesSideBySide} onChange={(e) => set({ couplesSideBySide: e.target.checked })} /> Seat couples and households side by side
+        </label>
+        <label className="check">
+          <input type="checkbox" className="switch" checked={R.apartHard} onChange={(e) => set({ apartHard: e.target.checked })} /> "Never same table" is absolute
+        </label>
       </div>
-      <div className="grid2" style={{ alignItems: 'start' }}>
-        <div className="field">
-          <span>Households (Joy parties, couples)</span>
-          <select className="input" value={R.household} onChange={(e) => set({ household: e.target.value as SeatingRules['household'] })}>
-            <option value="adjacent">Always side by side</option>
-            <option value="table">Always the same table</option>
-            <option value="soft">Strong preference only</option>
-          </select>
-        </div>
-        <div style={{ display: 'grid', gap: 8 }}>
-          <label className="check">
-            <input type="checkbox" className="switch" checked={R.apartHard} onChange={(e) => set({ apartHard: e.target.checked })} /> "Never same table" is absolute
-          </label>
-          <label className="check">
-            <input type="checkbox" className="switch" checked={R.couplesSideBySide} onChange={(e) => set({ couplesSideBySide: e.target.checked })} /> Seat couples side by side whenever possible
-          </label>
-          <label className="check">
-            <input type="checkbox" className="switch" checked={R.neighbours} onChange={(e) => set({ neighbours: e.target.checked })} /> Seat the closest pairs side by side
-          </label>
-          <label className="check">
-            <input type="checkbox" className="switch" checked={R.specificGroups} onChange={(e) => set({ specificGroups: e.target.checked })} /> Small groups count more than big ones
-          </label>
-        </div>
-      </div>
-      {SLIDERS.map((sec) => (
-        <div key={sec.section} style={{ display: 'grid', gap: 10 }}>
-          <span className="label">{sec.section}</span>
-          {sec.items.map((it) => {
-            const v = R[it.key] as number;
-            const isDefault = v === DEFAULT_RULES[it.key];
-            return (
-              <div key={it.key} className="rule-row">
-                <div>
-                  <label htmlFor={'r-' + it.key} style={{ fontWeight: 500 }}>
-                    {it.label}
-                  </label>
-                  <div className="muted" style={{ fontSize: 12 }}>
-                    {it.help}
-                  </div>
-                </div>
-                <div className="rule-ctl">
-                  <span className="muted end">{it.ends[0]}</span>
-                  <input id={'r-' + it.key} type="range" min={it.min} max={it.max} step={it.step} value={v} onChange={(e) => set({ [it.key]: +e.target.value } as Partial<SeatingRules>)} />
-                  <span className="muted end">{it.ends[1]}</span>
-                  <output className="num">{+v.toFixed(1)}</output>
-                  <button className="icon-btn sm" title="Reset to default" disabled={isDefault} onClick={() => set({ [it.key]: DEFAULT_RULES[it.key] } as Partial<SeatingRules>)}>
-                    <Icon name="undo" size="sm" />
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ))}
       <p className="muted" style={{ margin: 0, fontSize: 12 }}>
         Rules are saved with the seating chart, so anyone you share it with uses the same ones.
       </p>

@@ -1,6 +1,9 @@
 import type { Guest, Id, Project } from './types';
-import { buildAffinity, tableFit } from './scoring';
+import { groupTags, inGroup, targetHas } from './scoring';
 import { joinedGroups, packSlots, pairCapacity, slotsOf } from './geometry';
+import { effectiveSeat } from './relations';
+import { rulesOf } from './rules';
+import { tableTags } from './util';
 
 export interface AutoSeatOptions {
   /** keep: leave everyone already seated where they are; reseat: move anyone who isn't pinned */
@@ -16,29 +19,38 @@ export interface AutoSeatResult {
   placed: number;
   unplaced: Guest[];
   warnings: string[];
+  /** Guests seated at a table tagged for them / guests who have a tagged table */
+  tagMatched: number;
+  tagWanted: number;
   before: number;
   after: number;
 }
 
 /**
- * Seats guests by treating households and "must sit together" links as atomic units,
- * greedy-placing them, then improving with simulated annealing over moves and swaps.
+ * Two plain steps, in order:
+ *   1. Table tags: everyone whose tags match a table's tags sits there (households stay together).
+ *      Scarce tags go first; if a tag has more guests than seats, the rest fall through to step 2.
+ *   2. Connections: everyone else goes, household by household, to the table where they have the
+ *      most relationships or household members; failing that, next to people who share a tag;
+ *      failing that, any free seat.
+ * Hard rules throughout: "never same table", pinned guests and locked tables stay put, and
+ * households / "next to" pairs / couples get side-by-side chairs.
  */
 export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
-  const { weight, relation, rules: R } = buildAffinity(p);
+  const R = rulesOf(p.settings);
   const warnings: string[] = [];
   const guests = p.guests.filter((g) => g.rsvp === 'yes' || (opt.includePending && g.rsvp === 'pending'));
   const gIndex = new Map(guests.map((g, i) => [g.id, i]));
   const N = guests.length;
 
   const allowed = new Set(opt.tableIds ?? p.tables.map((t) => t.id));
-  // tables pushed together end to end are seated as one long table
-  const groupsV = joinedGroups(p.tables.filter((t) => allowed.has(t.id) && !t.locked && t.seats > 0));
+  // tables pushed together end to end are one long table, unless they're tagged for different groups
+  const groupsV = joinedGroups(p.tables.filter((t) => allowed.has(t.id) && !t.locked && t.seats > 0), { splitByTags: true });
   const T = groupsV.length;
   const tIndex = new Map(groupsV.flatMap((g, i) => g.map((t) => [t.id, i] as [Id, number])));
 
   // fixed guests: seated at a locked/excluded table, pinned, or (keep mode) anyone seated
-  const fixedAt = new Int32Array(N).fill(-1); // table index for fixed guests on a managed table
+  const fixedAt = new Int32Array(N).fill(-1);
   const fixedElsewhere = new Uint8Array(N);
   for (const [tid, arr] of Object.entries(p.seating)) {
     for (const gid of arr) {
@@ -49,37 +61,47 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
       else if (opt.mode === 'keep' || guests[i].pinned) fixedAt[i] = ti;
     }
   }
+  const movable = (i: number) => fixedAt[i] < 0 && !fixedElsewhere[i];
 
-  // pairwise weights (dense; fine for a few hundred guests)
+  // ---- connections: households and drawn relationships (W is only used for counting and chair order)
   const W = new Float32Array(N * N);
-  for (let i = 0; i < N; i++)
-    for (let j = i + 1; j < N; j++) {
-      const w = weight(guests[i].id, guests[j].id);
-      W[i * N + j] = w;
-      W[j * N + i] = w;
-    }
-  const fit = new Float32Array(N * Math.max(1, T));
-  const current = new Map<Id, Id>();
-  for (const [tid, arr] of Object.entries(p.seating)) for (const g of arr) if (g) current.set(g, tid);
-  for (let i = 0; i < N; i++)
-    for (let t = 0; t < T; t++) {
-      const g = groupsV[t];
-      fit[i * T + t] = g.reduce((s, tb) => s + tableFit(guests[i], tb, p), 0) / g.length;
-      if (R.stability && g.some((tb) => current.get(guests[i].id) === tb.id)) fit[i * T + t] += R.stability;
-    }
-
-  // ---- units: union-find on strong positive ties among movable guests
+  const apart = new Set<string>();
+  const key = (a: number, b: number) => (a < b ? a * N + b : b * N + a);
   const parent = Array.from({ length: N }, (_, i) => i);
   const find = (x: number): number => (parent[x] === x ? x : (parent[x] = find(parent[x])));
-  const movable = (i: number) => fixedAt[i] < 0 && !fixedElsewhere[i];
-  // households (unless soft) and "next to" pairs move as one unit so they stay side by side
+  const link = (a: number, b: number) => movable(a) && movable(b) && (parent[find(a)] = find(b));
   for (let i = 0; i < N; i++)
-    for (let j = i + 1; j < N; j++) {
-      if (!movable(i) || !movable(j)) continue;
-      const sameParty = R.household !== 'soft' && guests[i].party && guests[i].party === guests[j].party;
-      const beside = R.beside >= 10 && relation(guests[i].id, guests[j].id) === 'beside';
-      if (sameParty || beside) parent[find(i)] = find(j);
+    for (let j = i + 1; j < N; j++)
+      if (guests[i].party && guests[i].party === guests[j].party) {
+        W[i * N + j] = W[j * N + i] = 3;
+        link(i, j);
+      }
+  for (const r of p.relations) {
+    const a = gIndex.get(r.a),
+      b = gIndex.get(r.b);
+    if (a === undefined || b === undefined) continue;
+    const seat = effectiveSeat(r);
+    if (seat === 'apart' && R.apartHard) {
+      apart.add(String(key(a, b)));
+      continue;
     }
+    const w = r.kind === 'tension' ? -2 : seat === 'beside' ? 4 : seat === 'together' ? 3 : r.kind === 'acquaintance' ? 1 : 2;
+    W[a * N + b] = W[b * N + a] = Math.max(W[a * N + b], w);
+    if (seat === 'beside') link(a, b);
+  }
+
+  // ---- tags: what each table is for (its own tags + "where groups sit" placements), and each guest's tags
+  const tagsOfTable = groupsV.map((g) => {
+    const s = new Set<string>();
+    for (const t of g) for (const x of tableTags(t)) s.add(x.toLowerCase());
+    for (const pl of p.settings.placements ?? []) if (g.some((t) => targetHas(pl.target, t))) s.add(pl.group.toLowerCase());
+    return s;
+  });
+  const matchesTable = (i: number, t: number) => {
+    const g = guests[i];
+    for (const x of tagsOfTable[t]) if (inGroup(g, x) || (x === 'kids' && g.child) || g.side === x) return true;
+    return false;
+  };
 
   const groupSeats = groupsV.map((g) => g.reduce((s, t) => s + t.seats, 0));
   const maxCap = Math.max(0, ...groupSeats);
@@ -93,158 +115,84 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
     } else units.push(u);
   }
 
-  // ---- state
-  const cap = groupSeats;
   const members: number[][] = groupsV.map(() => []);
   for (let i = 0; i < N; i++) if (fixedAt[i] >= 0) members[fixedAt[i]].push(i);
-  const fixedCount = members.map((m) => m.length);
   const unitTable = new Int32Array(units.length).fill(-1);
-
-  const totalToSeat = units.reduce((s, u) => s + u.length, 0) + fixedCount.reduce((a, b) => a + b, 0);
-  // "spread evenly" compares how full each table is, so long joined rows and small tables are treated fairly
-  const fillRatio = totalToSeat / Math.max(1, groupSeats.reduce((a, b) => a + b, 0));
-
-  // how many two-person pairs each table can seat side by side (a 3-chair side holds one pair)
+  const free = (t: number) => groupSeats[t] - members[t].length;
+  // side-by-side chairs: a 3-chair side holds one couple, so don't send more couples than a table can seat together
   const pairSlots = groupsV.map((g) => pairCapacity(g));
-  const unitOf = new Int32Array(N).fill(-1);
-  units.forEach((u, k) => u.forEach((i) => (unitOf[i] = k)));
-  const tied = new Uint8Array(64);
-  function tableScore(t: number, mem: number[]) {
-    let s = 0;
-    const n = mem.length;
-    if (R.loner && n > 1) tied.fill(0, 0, n);
-    for (let a = 0; a < n; a++) {
-      s += fit[mem[a] * T + t];
-      for (let b = a + 1; b < n; b++) {
-        const w = W[mem[a] * N + mem[b]];
-        s += w;
-        if (w >= 1 && n <= 64) tied[a] = tied[b] = 1;
-      }
-    }
-    if (R.loner && n > 1 && n <= 64) for (let a = 0; a < n; a++) if (!tied[a]) s -= R.loner;
-    if (R.couplesSideBySide) {
-      // count pairs needed by linked units at this table; penalise more than the table can seat side by side
-      const seen = new Set<number>();
-      let pairs = 0;
-      for (const i of mem) {
-        const u = unitOf[i];
-        if (u < 0 || seen.has(u)) continue;
-        seen.add(u);
-        pairs += Math.floor(units[u].length / 2);
-      }
-      if (pairs > pairSlots[t]) s -= 150 * (pairs - pairSlots[t]);
-    }
-    if (R.balance === 'even') {
-      const dev = n - fillRatio * cap[t];
-      s -= R.balanceStrength * dev * dev;
-    }
-    else if (n > 0) s -= R.balanceStrength * (12 + 0.8 * (cap[t] - n));
-    return s;
-  }
+  const pairsAt = groupsV.map(() => 0);
+  // a household of 3 fills one 3-chair side, the same space one couple takes
+  const pairsOf = (u: number[]) => (u.length < 2 ? 0 : u.length === 3 ? 1 : Math.ceil(u.length / 2));
+  const allowedAt = (u: number[], t: number) =>
+    free(t) >= u.length && (!R.couplesSideBySide || pairsAt[t] + pairsOf(u) <= pairSlots[t]) && !u.some((i) => members[t].some((j) => apart.has(String(key(i, j)))));
+  const ties = (u: number[], t: number) => u.reduce((s, i) => s + members[t].reduce((q, j) => q + W[i * N + j], 0), 0);
+  const sharedTag = (u: number[], t: number) => {
+    const mine = new Set(u.flatMap((i) => groupTags(guests[i])));
+    return members[t].filter((j) => groupTags(guests[j]).some((x) => mine.has(x))).length;
+  };
+  const place = (k: number, t: number) => {
+    members[t].push(...units[k]);
+    pairsAt[t] += pairsOf(units[k]);
+    unitTable[k] = t;
+  };
+  /** Tables a unit can go to. Couples always sit together, so a table without a free side-by-side spot never qualifies. */
+  const candidates = (u: number[], tables: number[]) => tables.filter((t) => allowedAt(u, t));
 
-  const score = groupsV.map((_, t) => tableScore(t, members[t]));
-  const total = () => score.reduce((a, b) => a + b, 0);
-
-  // ---- greedy: biggest / most-connected units first
-  const deg = new Float32Array(N);
-  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) deg[i] += Math.max(0, W[i * N + j]);
-  const unitDegree = units.map((u) => u.reduce((s, i) => s + deg[i], 0));
-  const order = units.map((_, k) => k).sort((a, b) => units[b].length - units[a].length || unitDegree[b] - unitDegree[a]);
-  for (const k of order) {
+  // ---- step 1: table tags (scarcest first, so e.g. a 12-seat groomsmen table fills before a big catch-all tag)
+  const homes = units.map((u) => groupsV.map((_, t) => t).filter((t) => u.some((i) => matchesTable(i, t))));
+  // most specific first: a tag only 2 people have (Groom) is seated before one 7 people have (groomsmen)
+  const tagCount = new Map<string, number>();
+  for (const g of guests) for (const x of groupTags(g)) tagCount.set(x, (tagCount.get(x) ?? 0) + 1);
+  const specificity = units.map((u, k) => {
+    let best = Infinity;
+    for (const t of homes[k]) for (const x of tagsOfTable[t]) if (u.some((i) => groupTags(guests[i]).includes(x))) best = Math.min(best, tagCount.get(x) ?? Infinity);
+    return best;
+  });
+  const step1 = units
+    .map((_, k) => k)
+    .filter((k) => homes[k].length)
+    .sort((a, b) => specificity[a] - specificity[b] || units[b].length - units[a].length);
+  for (const k of step1) {
     const u = units[k];
-    let best = -1,
-      bestGain = -Infinity;
-    for (let t = 0; t < T; t++) {
-      if (members[t].length + u.length > cap[t]) continue;
-      const after = tableScore(t, [...members[t], ...u]);
-      const gain = after - score[t];
-      if (gain > bestGain) {
-        bestGain = gain;
-        best = t;
-      }
-    }
-    if (best >= 0) {
-      members[best].push(...u);
-      score[best] = tableScore(best, members[best]);
-      unitTable[k] = best;
-    }
+    const ok = candidates(u, homes[k]);
+    if (!ok.length) continue;
+    // among matching tables: join people they're connected to, then people who share a tag, then the emptiest
+    ok.sort((a, b) => ties(u, b) - ties(u, a) || sharedTag(u, b) - sharedTag(u, a) || free(b) - free(a));
+    place(k, ok[0]);
   }
-  const before = total();
+  const tagWanted = step1.reduce((s, k) => s + units[k].length, 0);
+  const tagMatched = step1.filter((k) => unitTable[k] >= 0).reduce((s, k) => s + units[k].length, 0);
+  if (tagMatched < tagWanted) warnings.push(`${tagWanted - tagMatched} guest(s) couldn't sit at a table tagged for them (not enough seats, or no side-by-side chairs left for a couple), so they were seated by their connections.`);
 
-  // ---- simulated annealing
-  const placedUnits = units.map((_, k) => k).filter((k) => unitTable[k] >= 0);
-  const iters = Math.min(120000, Math.max(8000, placedUnits.length * 600)) * (opt.effort ?? 1);
-  let temp = 6;
-  const cool = Math.pow(0.02 / temp, 1 / iters);
-  const without = (arr: number[], rm: number[]) => arr.filter((x) => !rm.includes(x));
-  for (let it = 0; it < iters && T > 1 && placedUnits.length; it++, temp *= cool) {
-    const k = placedUnits[(Math.random() * placedUnits.length) | 0];
-    const from = unitTable[k];
-    const to = (Math.random() * T) | 0;
-    if (to === from) continue;
+  // ---- step 2: everyone else, by connections (most connected first)
+  const conn = units.map((u) => u.reduce((s, i) => s + W.subarray(i * N, i * N + N).reduce((a, b) => a + Math.max(0, b), 0), 0));
+  const step2 = units
+    .map((_, k) => k)
+    .filter((k) => unitTable[k] < 0)
+    .sort((a, b) => conn[b] - conn[a] || units[b].length - units[a].length);
+  for (const k of step2) {
     const u = units[k];
-    if (members[to].length + u.length <= cap[to] && Math.random() < 0.5) {
-      // move
-      const mf = without(members[from], u),
-        mt = [...members[to], ...u];
-      const sf = tableScore(from, mf),
-        st = tableScore(to, mt);
-      const d = sf + st - score[from] - score[to];
-      if (d >= 0 || Math.random() < Math.exp(d / temp)) {
-        members[from] = mf;
-        members[to] = mt;
-        score[from] = sf;
-        score[to] = st;
-        unitTable[k] = to;
-      }
-    } else {
-      // swap with one or more units at `to` (e.g. a couple for two singles) so table sizes still fit
-      const cands = placedUnits.filter((q) => unitTable[q] === to);
-      if (!cands.length) continue;
-      const pick: number[] = [];
-      let size = 0;
-      for (let tries = 0; tries < 6 && size < u.length; tries++) {
-        const q = cands[(Math.random() * cands.length) | 0];
-        if (pick.includes(q) || size + units[q].length > Math.max(u.length, units[q].length)) continue;
-        pick.push(q);
-        size += units[q].length;
-      }
-      if (!pick.length) continue;
-      const v = pick.flatMap((q) => units[q]);
-      if (members[from].length - u.length + v.length > cap[from] || members[to].length - v.length + u.length > cap[to]) continue;
-      const mf = [...without(members[from], u), ...v],
-        mt = [...without(members[to], v), ...u];
-      const sf = tableScore(from, mf),
-        st = tableScore(to, mt);
-      const d = sf + st - score[from] - score[to];
-      if (d >= 0 || Math.random() < Math.exp(d / temp)) {
-        members[from] = mf;
-        members[to] = mt;
-        score[from] = sf;
-        score[to] = st;
-        unitTable[k] = to;
-        for (const q of pick) unitTable[q] = from;
-      }
-    }
+    const ok = candidates(u, groupsV.map((_, t) => t));
+    if (!ok.length) continue;
+    // prefer: relationships at the table > people sharing a tag > tables not tagged for someone else > most free seats
+    const untagged = (t: number) => (tagsOfTable[t].size ? 0 : 1);
+    ok.sort((a, b) => ties(u, b) - ties(u, a) || sharedTag(u, b) - sharedTag(u, a) || untagged(b) - untagged(a) || free(b) - free(a));
+    place(k, ok[0]);
   }
 
   // ---- seat order within each table
   const seating: Project['seating'] = structuredClone(p.seating);
   for (const t of p.tables) if (!seating[t.id]) seating[t.id] = Array(t.seats).fill(null);
-  // clear non-fixed guests from managed tables
   for (let t = 0; t < T; t++)
     for (const tb of groupsV[t]) seating[tb.id] = seating[tb.id].map((g) => (g && gIndex.has(g) && fixedAt[gIndex.get(g)!] === t ? g : null));
-  // remove moved guests from wherever they were (e.g. declined guests stay out)
   const placedSet = new Set<Id>();
   for (let t = 0; t < T; t++) {
     const slots = slotsOf(groupsV[t]);
     const arr = slots.map((sl) => seating[sl.t][sl.s]);
-    const newcomers = units
-      .map((u, k) => ({ u, k }))
-      .filter(({ k }) => unitTable[k] === t)
-      .map(({ u }) => u);
-    const ordered = R.neighbours ? orderUnits(newcomers.map((u) => orderWithin(u, W, N)), arr, W, N, gIndex) : newcomers;
-    // couples and other linked units go in first so each lands in one side-by-side stretch; singles fill around them
+    const newcomers = units.filter((_, k) => unitTable[k] === t);
+    const ordered = orderUnits(newcomers.map((u) => orderWithin(u, W, N)), arr, W, N, gIndex);
+    // households and "next to" pairs go in first so each lands in one side-by-side stretch
     const groups = R.couplesSideBySide ? [...ordered.filter((u) => u.length > 1), ...ordered.filter((u) => u.length === 1)] : ordered.flat().map((g) => [g]);
     const seatsFor = packSlots(slots, arr.map(Boolean), groups.map((u) => u.length));
     groups.forEach((u, k) =>
@@ -256,12 +204,13 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
       }),
     );
   }
-  // guests not eligible (declined) on managed tables were already cleared above
 
+  const crowded = groupsV.map((g, t) => (pairsAt[t] > pairSlots[t] ? g.map((x) => x.label).join(' + ') : '')).filter(Boolean);
+  if (crowded.length && R.couplesSideBySide)
+    warnings.push(`Not every couple could sit side by side at ${crowded.join(', ')}: those tables have more couples than side-by-side chairs (a 3-chair side fits one couple). Add seats, change a table's tags, or move a couple by hand.`);
   const unplaced = units.filter((_, k) => unitTable[k] < 0).flat().map((i) => guests[i]);
   if (unplaced.length) warnings.push(`${unplaced.length} guest(s) didn't fit — add tables or seats.`);
-
-  return { seating, placed: placedSet.size, unplaced, warnings, before, after: total() };
+  return { seating, placed: placedSet.size, unplaced, warnings, tagMatched, tagWanted, before: 0, after: 0 };
 }
 
 /** Order a unit's members so the strongest pairs (e.g. "next to") are adjacent. */

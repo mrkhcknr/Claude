@@ -198,14 +198,17 @@ export function packSeats(t: Table, occupied: boolean[], groups: number[], prefe
 }
 
 /** Tables pushed together end to end form one long table for seating purposes. */
-export function joinedGroups(tables: Table[]): Table[][] {
+export function joinedGroups(tables: Table[], opts: { splitByTags?: boolean } = {}): Table[][] {
   const parent = tables.map((_, i) => i);
+  // tables pushed together but tagged for different groups stay separate sections (for auto-seat)
+  const tagKey = (t: Table) => t.reservedFor.split(/[,;|]/).map((x) => x.trim().toLowerCase()).filter(Boolean).sort().join('|');
   const find = (x: number): number => (parent[x] === x ? x : (parent[x] = find(parent[x])));
   for (let i = 0; i < tables.length; i++)
     for (let j = i + 1; j < tables.length; j++) {
       const a = tables[i],
         b = tables[j];
       if (Math.hypot(a.x - b.x, a.y - b.y) > Math.max(a.w, a.h) + Math.max(b.w, b.h)) continue;
+      if (opts.splitByTags && tagKey(a) !== tagKey(b)) continue;
       if (joined(a, b)) parent[find(i)] = find(j);
     }
   const m = new Map<number, Table[]>();
