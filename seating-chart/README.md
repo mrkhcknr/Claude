@@ -6,7 +6,8 @@ An interactive seating chart: draw the venue, import the guest list, map who kno
 
 - **Floor plan**: walls, columns, doors, windows and areas (dance floor, bar, stage…). Tables in round, banquet, square, oval and one-sided shapes. Drag to move, square handles to resize, round handle to rotate, exact sizes in the side panel. Spacing checks flag tables that are too close.
 - **Guests**: import a Joy export (or any CSV / pasted list). Households (Joy "Party") stay together. Re-importing updates RSVPs and meals without moving anyone. Drag guests or whole households onto seats or tables.
-- **Social graph**: drag between guests to draw ties (*next to*, *same table*, *prefer*, *avoid*, *never*), drop guests into group bubbles, lasso clusters into new groups.
+- **Social graph**: drag between guests to draw relationships (*partner*, *family*, *friend*, *coworker*, *acquaintance*, *tension*), tag each with how they know each other ("Fire Island", "Google" — also added to both guests' tags), add optional seating rules (*next to*, *same table*, *never same table*), drop guests into group bubbles, lasso clusters into new groups.
+- **Group placements**: give tables an Area ("Top room") and assign groups to an area or table; auto-seat pulls them there.
 - **Search & filters**: one filter bar (RSVP, side, table, meal, tags, dietary needs, "no ties yet"…) that highlights the same people on the list, the plan and the graph.
 - **Auto-seat**: simulated annealing over households and ties, with every heuristic adjustable under *Rules* (presets included). Pinned guests and locked tables never move.
 - **Ask Claude** (inside claude.ai only): describe what you want in plain words. Claude proposes rule changes, ties and tags for you to approve, and can review a finished seating and suggest swaps.
