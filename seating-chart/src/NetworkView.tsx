@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY, type Simulation, type SimulationLinkDatum, type SimulationNodeDatum } from 'd3-force';
-import type { Guest, Id, RelationKind } from './types';
+import type { Bond, Guest, Id, SeatRule } from './types';
 import { makeParty, relateAll, seatAtTable, setRelation, setSelection, tableName, toast, update, updateGuests, useStore } from './store';
 import { activeCount, allTags, clearFilters, guestMatcher, setFilters, useFilters } from './filters';
-import { REL_LABEL, REL_SHORT, groupTags, type Analysis } from './scoring';
+import { groupTags, type Analysis } from './scoring';
+import { BONDS, BOND_HELP, BOND_LABEL, SEAT_LABEL, SEAT_RULES, describeTie, effectiveSeat, isPositive } from './relations';
 import { clamp, firstName, hueColor } from './util';
 import { Icon } from './ui';
 import { tagColor as tagColorFor } from './tags';
 import { SearchBox, FilterSheet } from './GuestPanel';
 
-type Brush = 'move' | RelationKind | 'erase' | 'lasso';
+type Brush = 'move' | Bond | 'erase' | 'lasso';
+type EdgeColor = 'relationship' | 'context';
 type ColorBy = 'group' | 'table' | 'side';
 
 interface N extends SimulationNodeDatum {
@@ -18,9 +20,13 @@ interface N extends SimulationNodeDatum {
   guest?: Guest;
 }
 interface L extends SimulationLinkDatum<N> {
-  kind: RelationKind | 'party' | 'hub';
+  kind: Bond | 'party' | 'hub';
+  seat?: SeatRule;
   rid?: string;
 }
+
+const LINK_DIST: Record<L['kind'], number> = { hub: 46, party: 22, partner: 20, family: 30, friend: 36, coworker: 48, acquaintance: 70, tension: 200 };
+const LINK_STR: Record<L['kind'], number> = { hub: 0.22, party: 1, partner: 1, family: 0.9, friend: 0.8, coworker: 0.6, acquaintance: 0.35, tension: 0.12 };
 
 // positions survive view switches
 const memo = new Map<string, { x: number; y: number }>();
@@ -29,7 +35,10 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
   const project = useStore((s) => s.project);
   const selection = useStore((s) => s.selection);
   const filters = useFilters();
-  const [brush, setBrush] = useState<Brush>('beside');
+  const [brush, setBrush] = useState<Brush>('friend');
+  const [brushSeat, setBrushSeat] = useState<SeatRule | ''>('');
+  const [brushCtx, setBrushCtx] = useState('');
+  const [edgeColor, setEdgeColor] = useState<EdgeColor>('relationship');
   const [colorBy, setColorBy] = useState<ColorBy>('group');
   const [includeDeclined, setIncludeDeclined] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -55,7 +64,7 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
   // degree for "no ties" highlighting
   const tied = useMemo(() => {
     const s = new Set<Id>();
-    for (const r of project.relations) if (r.kind === 'beside' || r.kind === 'together' || r.kind === 'prefer') (s.add(r.a), s.add(r.b));
+    for (const r of project.relations) if (isPositive(r)) (s.add(r.a), s.add(r.b));
     const pc = new Map<string, number>();
     for (const g of project.guests) if (g.party) pc.set(g.party, (pc.get(g.party) ?? 0) + 1);
     for (const g of project.guests) if (g.party && pc.get(g.party)! > 1) s.add(g.id);
@@ -63,7 +72,7 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
   }, [project.relations, project.guests]);
 
   // ---------- simulation ----------
-  const graphKey = useMemo(() => guests.map((g) => g.id + g.group + g.party).join() + '|' + project.relations.map((r) => r.id + r.kind).join(), [guests, project.relations]);
+  const graphKey = useMemo(() => guests.map((g) => g.id + g.group + g.party).join() + '|' + project.relations.map((r) => r.id + r.kind + (effectiveSeat(r) ?? '')).join(), [guests, project.relations]);
   useEffect(() => {
     const ids = new Set(guests.map((g) => g.id));
     const old = nodesRef.current;
@@ -90,13 +99,13 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
     const parties = new Map<string, string[]>();
     for (const g of guests) if (g.party) parties.set(g.party, [...(parties.get(g.party) ?? []), g.id]);
     for (const mem of parties.values()) for (let i = 1; i < mem.length; i++) links.push({ source: mem[0], target: mem[i], kind: 'party' });
-    for (const r of project.relations) if (ids.has(r.a) && ids.has(r.b)) links.push({ source: r.a, target: r.b, kind: r.kind, rid: r.id });
+    for (const r of project.relations) if (ids.has(r.a) && ids.has(r.b)) links.push({ source: r.a, target: r.b, kind: r.kind, seat: effectiveSeat(r), rid: r.id });
     nodesRef.current = nodes;
 
     const linkForce = forceLink<N, L>(links)
       .id((d) => d.id)
-      .distance((l) => ({ hub: 46, party: 22, beside: 20, together: 30, prefer: 52, avoid: 190, apart: 260 })[l.kind])
-      .strength((l) => ({ hub: 0.22, party: 1, beside: 1, together: 0.9, prefer: 0.5, avoid: 0.12, apart: 0.25 })[l.kind]);
+      .distance((l) => (l.seat === 'apart' ? 260 : l.seat === 'beside' ? 20 : LINK_DIST[l.kind]))
+      .strength((l) => (l.seat === 'apart' ? 0.25 : l.seat === 'beside' ? 1 : LINK_STR[l.kind]));
     sim.current?.stop();
     const s = forceSimulation<N, L>([...nodes.values()])
       .force('link', linkForce)
@@ -139,7 +148,8 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
   useEffect(() => {
     const kd = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).closest('input,textarea,select') || e.metaKey || e.ctrlKey) return;
-      const m: Record<string, Brush> = { '1': 'beside', '2': 'together', '3': 'prefer', '4': 'avoid', '5': 'apart', m: 'move', e: 'erase', l: 'lasso' };
+      const m: Record<string, Brush> = { m: 'move', e: 'erase', l: 'lasso' };
+      BONDS.forEach((b, i) => (m[String(i + 1)] = b));
       if (m[e.key]) setBrush(m[e.key]);
     };
     window.addEventListener('keydown', kd);
@@ -215,10 +225,9 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
       return;
     }
     if (eEl && !nEl) {
-      const [a, b, kind] = eEl.dataset.edge!.split('|');
+      const [a, b] = eEl.dataset.edge!.split('|');
       if (brush === 'erase') setRelation(a, b, null);
-      else if (brush !== 'move' && kind !== brush) setRelation(a, b, brush as RelationKind);
-      else if (brush !== 'move' && kind === brush) setRelation(a, b, null);
+      else if (brush !== 'move') paint(a, b);
       else setSelection({ type: 'guest', ids: [a, b] });
       return;
     }
@@ -305,19 +314,27 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
       const target = rubber.over;
       setRubber(null);
       if (target && brush !== 'erase' && brush !== 'lasso') {
-        const existing = project.relations.find((r) => (r.a === n.id && r.b === target) || (r.b === n.id && r.a === target));
-        const kind = brush as RelationKind;
-        if (existing?.kind === kind) {
-          setRelation(n.id, target, null);
-          toast('Tie removed', true);
-        } else {
-          setRelation(n.id, target, kind);
-          const a = byId.get(n.id)?.guest?.name,
-            b = byId.get(target)?.guest?.name;
-          toast(`${firstName(a ?? '')} & ${firstName(b ?? '')}: ${REL_LABEL[kind].toLowerCase()}`, true);
-        }
+        paint(n.id, target);
       }
     }
+  }
+
+  /** Apply the current brush (relationship + optional seating rule + context) to a pair; repeat to remove. */
+  function paint(a: Id, b: Id) {
+    const kind = brush as Bond;
+    const existing = project.relations.find((r) => (r.a === a && r.b === b) || (r.b === a && r.a === b));
+    const ctx = brushCtx.trim();
+    const hasCtx = !ctx || (existing?.contexts ?? []).some((c) => c.toLowerCase() === ctx.toLowerCase());
+    if (existing && existing.kind === kind && (!brushSeat || existing.seat === brushSeat) && hasCtx) {
+      setRelation(a, b, null);
+      toast('Tie removed', true);
+      return;
+    }
+    const contexts = ctx && !hasCtx ? [...(existing?.contexts ?? []), ctx] : undefined;
+    setRelation(a, b, { kind, ...(brushSeat ? { seat: brushSeat } : {}), ...(contexts ? { contexts } : {}) });
+    const na = byId.get(a)?.guest?.name,
+      nb = byId.get(b)?.guest?.name;
+    toast(`${firstName(na ?? '')} & ${firstName(nb ?? '')}: ${describeTie({ kind, seat: brushSeat || existing?.seat, contexts: contexts ?? existing?.contexts })}`, true);
   }
 
   function addTag(guestId: Id, tag: string) {
@@ -354,13 +371,16 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
             const a = byId.get(r.a),
               b = byId.get(r.b);
             if (!a || !b) return null;
-            const dim = dimEdges && !(matcher!(a.guest!) || matcher!(b.guest!));
+            const ctxMatch = !filters.tags.length || (r.contexts ?? []).some((c) => filters.tags.includes(c.toLowerCase()));
+            const dim = (dimEdges && !(matcher!(a.guest!) || matcher!(b.guest!))) || (filters.tags.length > 0 && !ctxMatch);
+            const seat = effectiveSeat(r);
+            const ctxColor = edgeColor === 'context' ? (r.contexts?.[0] ? tagColor.get(r.contexts[0].toLowerCase()) ?? 'var(--ink-3)' : 'var(--line-2)') : undefined;
             return (
-              <g key={r.id} data-edge={`${r.a}|${r.b}|${r.kind}`}>
+              <g key={r.id} data-edge={`${r.a}|${r.b}`}>
                 <line className="edge-hit" x1={a.x} y1={a.y} x2={b.x} y2={b.y} />
-                <line className={`edge e-${r.kind} ${dim ? 'dim' : ''}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y}>
+                <line className={`edge b-${r.kind} ${seat ? 's-' + seat : ''} ${dim ? 'dim' : ''}`} style={ctxColor ? { stroke: ctxColor } : undefined} x1={a.x} y1={a.y} x2={b.x} y2={b.y}>
                   <title>
-                    {a.guest!.name} & {b.guest!.name}: {REL_LABEL[r.kind]}
+                    {a.guest!.name} & {b.guest!.name}: {describeTie(r)}
                   </title>
                 </line>
               </g>
@@ -405,10 +425,10 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
           <Icon name="hand" />
         </button>
         <span className="sep" />
-        {(['beside', 'together', 'prefer', 'avoid', 'apart'] as RelationKind[]).map((k, i) => (
-          <button key={k} className={`brush k-${k}`} aria-pressed={brush === k} title={`Drag from one guest to another: ${REL_LABEL[k]} (${i + 1})`} onClick={() => setBrush(k)}>
+        {BONDS.map((k, i) => (
+          <button key={k} className={`brush b-${k}`} aria-pressed={brush === k} title={`Drag from one guest to another: ${BOND_HELP[k]} (${i + 1})`} onClick={() => setBrush(k)}>
             <span className="sw" />
-            {REL_SHORT[k]}
+            {BOND_LABEL[k]}
           </button>
         ))}
         <span className="sep" />
@@ -419,6 +439,25 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
           <Icon name="lasso" />
         </button>
       </div>
+
+      {BONDS.includes(brush as Bond) && (
+        <div className="palette brush-opts" onPointerDown={(e) => e.stopPropagation()}>
+          <input className="input" value={brushCtx} list="net-contexts" placeholder="How they know each other (optional)" onChange={(e) => setBrushCtx(e.target.value)} aria-label="Context for new ties" />
+          <datalist id="net-contexts">
+            {tagList.map((t) => (
+              <option key={t.label} value={t.label} />
+            ))}
+          </datalist>
+          <select className="input" value={brushSeat} onChange={(e) => setBrushSeat(e.target.value as SeatRule | '')} aria-label="Seating rule for new ties">
+            <option value="">{brush === 'partner' ? 'Seat next to (partner)' : 'No seating rule'}</option>
+            {SEAT_RULES.map((k) => (
+              <option key={k} value={k}>
+                {SEAT_LABEL[k]}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="net-side" onPointerDown={(e) => e.stopPropagation()}>
         <SearchBox open={showFilters} setOpen={setShowFilters} placeholder="Find a guest…" />
@@ -434,6 +473,13 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
             <option value="group">Group</option>
             <option value="table">Table</option>
             <option value="side">Side</option>
+          </select>
+        </div>
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <span className="label">Lines by</span>
+          <select className="input" style={{ width: 'auto', padding: '2px 6px', fontSize: 12 }} value={edgeColor} onChange={(e) => setEdgeColor(e.target.value as EdgeColor)}>
+            <option value="relationship">Relationship</option>
+            <option value="context">How they know each other</option>
           </select>
         </div>
         <button className="tag-drop" aria-pressed={filters.flags.includes('noTies')} onClick={() => setFilters({ flags: filters.flags.includes('noTies') ? filters.flags.filter((f) => f !== 'noTies') : [...filters.flags, 'noTies'] })}>
@@ -490,7 +536,7 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
 
       <div className="palette legend" onPointerDown={(e) => e.stopPropagation()}>
         <span className="muted">
-          {gnodes.length} guests · {project.relations.length} ties · drag between guests to connect them
+          {gnodes.length} guests · {project.relations.length} relationships · drag between guests to connect them
         </span>
       </div>
 
@@ -544,13 +590,16 @@ function SelectionBar({ guests }: { guests: Guest[] }) {
       <button className="btn sm" onClick={() => makeParty(ids)}>
         Household
       </button>
-      <button className="btn sm" onClick={() => relateAll(ids, 'beside')}>
+      <button className="btn sm" onClick={() => relateAll(ids, { kind: 'friend' })}>
+        Friends
+      </button>
+      <button className="btn sm" onClick={() => relateAll(ids, { kind: 'coworker' })}>
+        Coworkers
+      </button>
+      <button className="btn sm" onClick={() => relateAll(ids, { seat: 'beside' })}>
         Next to each other
       </button>
-      <button className="btn sm" onClick={() => relateAll(ids, 'prefer')}>
-        Prefer together
-      </button>
-      <button className="btn sm" onClick={() => relateAll(ids, 'apart')}>
+      <button className="btn sm" onClick={() => relateAll(ids, { kind: 'tension', seat: 'apart' })}>
         Keep apart
       </button>
       <select

@@ -1,33 +1,10 @@
-import type { Guest, Id, Project, RelationKind, Table } from './types';
+import type { Guest, Id, Project, Relation, Table } from './types';
+import { effectiveSeat, effectOf, type Effect } from './relations';
 import { clearanceIssues, joinedGroups, nearestDoorDist, slotsAdjacent } from './geometry';
 import { likelySame } from './util';
 import { tableName } from './store';
 import { rulesOf } from './rules';
 import { byGuest, findDiscrepancies } from './discrepancies';
-
-export const REL_WEIGHT: Record<RelationKind, number> = {
-  beside: 14,
-  together: 12,
-  prefer: 4,
-  avoid: -6,
-  apart: -80,
-};
-
-export const REL_LABEL: Record<RelationKind, string> = {
-  beside: 'Seat next to each other',
-  together: 'Same table',
-  prefer: 'Prefer together',
-  avoid: 'Prefer apart',
-  apart: 'Never same table',
-};
-
-export const REL_SHORT: Record<RelationKind, string> = {
-  beside: 'Next to',
-  together: 'Same table',
-  prefer: 'Prefer',
-  avoid: 'Avoid',
-  apart: 'Never',
-};
 
 export const GROUP_WEIGHT = 2.5;
 export const PARTY_WEIGHT = 30;
@@ -45,9 +22,14 @@ export const groupTags = (g: Guest) =>
 
 export function buildAffinity(p: Project) {
   const R = rulesOf(p.settings);
-  const relW: Record<RelationKind, number> = { beside: R.beside, together: R.together, prefer: R.prefer, avoid: R.avoid, apart: R.apartHard ? -1000 : R.apart };
-  const rel = new Map<string, RelationKind>();
-  for (const r of p.relations) rel.set(key(r.a, r.b), r.kind);
+  const bondW: Record<Relation['kind'], number> = { partner: 0, family: R.family, friend: R.friend, coworker: R.coworker, acquaintance: R.acquaintance, tension: R.tension };
+  const seatW = { beside: R.beside, together: R.together, apart: R.apartHard ? -1000 : R.apart };
+  const rel = new Map<string, Relation>();
+  for (const r of p.relations) rel.set(key(r.a, r.b), r);
+  const tieW = (r: Relation) => {
+    const s = effectiveSeat(r);
+    return s === 'apart' ? seatW.apart + Math.min(0, bondW[r.kind]) : bondW[r.kind] + (s ? seatW[s] : 0);
+  };
   const byId = new Map(p.guests.map((g) => [g.id, g]));
   const tags = new Map(p.guests.map((g) => [g.id, groupTags(g)]));
   // smaller, more specific groups count for more than big catch-all ones
@@ -60,7 +42,7 @@ export function buildAffinity(p: Project) {
     if (!ga || !gb) return 0;
     let w = 0;
     const r = rel.get(key(a, b));
-    if (r) w += relW[r];
+    if (r) w += tieW(r);
     if (ga.party && ga.party === gb.party) w += R.household === 'soft' ? 10 : PARTY_WEIGHT;
     const ta = tags.get(a)!,
       tb = tags.get(b)!;
@@ -71,22 +53,74 @@ export function buildAffinity(p: Project) {
     if (ga.child && gb.child) w += R.kids;
     return w;
   }
-  return { weight, relation: (a: Id, b: Id) => rel.get(key(a, b)), rules: R };
+  return {
+    weight,
+    /** The seating effect of the tie between a and b ("beside", "together", "apart", "tension"). */
+    relation: (a: Id, b: Id): Effect | undefined => {
+      const r = rel.get(key(a, b));
+      return r ? effectOf(r) : undefined;
+    },
+    tie: (a: Id, b: Id) => rel.get(key(a, b)),
+    rules: R,
+  };
+}
+
+/** Is the guest in this group? A group is a tag, a partner's side, or "kids". */
+export function inGroup(g: Guest, group: string) {
+  const k = group.trim().toLowerCase();
+  if (!k) return false;
+  if (k === 'kids' || k === 'children') return g.child;
+  if (k === 'partner1' || k === 'partner2') return g.side === k || g.side === 'both';
+  return groupTags(g).includes(k);
+}
+
+/** Does a placement target ("area:Top room" / "table:t3") include this table? */
+export const targetHas = (target: string, t: Table) =>
+  target.startsWith('table:') ? target.slice(6) === t.id : target.startsWith('area:') ? (t.area ?? '').trim().toLowerCase() === target.slice(5).trim().toLowerCase() : false;
+
+export function targetLabel(target: string, p: Project) {
+  if (target.startsWith('area:')) return target.slice(5);
+  const t = p.tables.find((x) => x.id === target.slice(6));
+  return t ? tableName(t) : 'a deleted table';
+}
+
+export function groupLabel(group: string, p: Project) {
+  if (group === 'partner1') return `${p.settings.partner1}'s side`;
+  if (group === 'partner2') return `${p.settings.partner2}'s side`;
+  if (group === 'kids') return 'Kids';
+  return allGroupLabel(group, p);
+}
+const allGroupLabel = (k: string, p: Project) => {
+  for (const g of p.guests) for (const t of g.group.split(/[,;/|]/)) if (t.trim().toLowerCase() === k) return t.trim();
+  return k;
+};
+
+function reservedFit(g: Guest, t: Table, R: ReturnType<typeof rulesOf>) {
+  const res = t.reservedFor.trim().toLowerCase();
+  if (!res) return 0;
+  const tags = groupTags(g);
+  const matches = tags.includes(res) || (g.child && /kid|child/.test(res)) || g.side === res || (res === 'family' && tags.some((x) => x.includes('family')));
+  return matches ? R.reserved * 0.75 : -R.reserved * 1.25;
 }
 
 /** Bonus/penalty for a guest sitting at a given table regardless of who else is there. */
 export function tableFit(g: Guest, t: Table, p: Project) {
   const R = rulesOf(p.settings);
-  let w = 0;
-  const res = t.reservedFor.trim().toLowerCase();
-  if (res) {
-    const tags = groupTags(g);
-    const matches = tags.includes(res) || (g.child && /kid|child/.test(res)) || g.side === res || (res === 'family' && tags.some((x) => x.includes('family')));
-    w += matches ? R.reserved * 0.75 : -R.reserved * 1.25;
-  }
+  let w = reservedFit(g, t, R);
   if (g.accessible && R.accessible) {
     const d = nearestDoorDist(p, t);
     if (Number.isFinite(d)) w += R.accessible * Math.max(-1, 1 - d / 24);
+  }
+  if (R.placement) {
+    // assigned groups: pulled to their tables/area, pushed (gently) away from elsewhere
+    let mine = 0,
+      hit = 0;
+    for (const pl of p.settings.placements ?? []) {
+      if (!inGroup(g, pl.group)) continue;
+      mine++;
+      if (targetHas(pl.target, t)) hit++;
+    }
+    if (mine) w += hit ? R.placement : -R.placement * 0.5;
   }
   return w;
 }
@@ -97,7 +131,7 @@ export interface TableReport {
   /** 0–100: share of seated guests with at least one positive tie at their table */
   happiness: number;
   isolated: Guest[];
-  conflicts: { a: Guest; b: Guest; kind: RelationKind }[];
+  conflicts: { a: Guest; b: Guest; kind: 'apart' | 'tension' }[];
   meals: Record<string, number>;
   dietary: Guest[];
 }
@@ -131,7 +165,7 @@ export function analyse(p: Project) {
         if (weight(guests[i].id, guests[j].id) >= 1) pos = true;
         if (j > i) {
           const r = relation(guests[i].id, guests[j].id);
-          if (r === 'apart' || r === 'avoid') conflicts.push({ a: guests[i], b: guests[j], kind: r });
+          if (r === 'apart' || r === 'tension') conflicts.push({ a: guests[i], b: guests[j], kind: r });
         }
       }
       if (!pos && guests.length > 1) isolated.push(guests[i]);
@@ -164,14 +198,14 @@ export function analyse(p: Project) {
     for (const c of r.conflicts)
       issues.push({
         level: c.kind === 'apart' ? 'error' : 'warn',
-        text: `${c.a.name} & ${c.b.name} are both at ${tableName(r.table)} (${c.kind === 'apart' ? 'never same table' : 'prefer apart'})`,
+        text: `${c.a.name} & ${c.b.name} are both at ${tableName(r.table)} (${c.kind === 'apart' ? 'never same table' : 'tension'})`,
         tableId: r.table.id,
         guestIds: [c.a.id, c.b.id],
       });
     for (const g of r.isolated) issues.push({ level: 'info', text: `${g.name} has no ties at ${tableName(r.table)}`, tableId: r.table.id, guestIds: [g.id] });
     const res = r.table.reservedFor.trim();
     if (res) {
-      const off = r.guests.filter((g) => tableFit(g, r.table, { ...p, elements: [] }) < 0);
+      const off = r.guests.filter((g) => reservedFit(g, r.table, rulesOf(p.settings)) < 0);
       if (off.length) issues.push({ level: 'warn', text: `${off.length} guest(s) at ${tableName(r.table)} aren't in "${res}"`, tableId: r.table.id, guestIds: off.map((g) => g.id) });
     }
     for (const g of r.guests) {
@@ -180,6 +214,12 @@ export function analyse(p: Project) {
       if (!Number.isFinite(d)) issues.push({ level: 'info', text: `${g.name} needs an accessible seat — add doors to the plan so it can be checked`, guestIds: [g.id], tableId: r.table.id });
       else if (d > 25) issues.push({ level: 'warn', text: `${g.name} needs an accessible seat but ${tableName(r.table)} is ${Math.round(d)} ft from the nearest door`, guestIds: [g.id], tableId: r.table.id });
     }
+  }
+
+  // group placements not honoured
+  for (const pl of p.settings.placements ?? []) {
+    const away = attending.filter((g) => inGroup(g, pl.group) && tableOf.has(g.id) && !targetHas(pl.target, p.tables.find((t) => t.id === tableOf.get(g.id))!));
+    if (away.length) issues.push({ level: 'info', text: `${away.length} of ${groupLabel(pl.group, p)} aren't at ${targetLabel(pl.target, p)}`, guestIds: away.map((g) => g.id) });
   }
 
   // split parties
@@ -210,14 +250,15 @@ export function analyse(p: Project) {
   const seatOf = new Map<Id, number>();
   for (const arr of Object.values(p.seating)) arr.forEach((g, i) => g && seatOf.set(g, i));
   for (const r of p.relations) {
-    if (r.kind !== 'together' && r.kind !== 'beside') continue;
+    const want = effectiveSeat(r);
+    if (want !== 'together' && want !== 'beside') continue;
     const ta = tableOf.get(r.a),
       tb = tableOf.get(r.b);
     if (!ta || !tb) continue;
     const a = byId.get(r.a)!,
       b = byId.get(r.b)!;
-    if (rowOf.get(ta) !== rowOf.get(tb)) issues.push({ level: 'warn', text: `${a.name} & ${b.name} should ${r.kind === 'beside' ? 'sit next to each other' : 'share a table'} but are at different tables`, guestIds: [a.id, b.id] });
-    else if (r.kind === 'beside') {
+    if (rowOf.get(ta) !== rowOf.get(tb)) issues.push({ level: 'warn', text: `${a.name} & ${b.name} should ${want === 'beside' ? 'sit next to each other' : 'share a table'} but are at different tables`, guestIds: [a.id, b.id] });
+    else if (want === 'beside') {
       const t = p.tables.find((x) => x.id === ta);
       if (t && !slotsAdjacent(p.tables, { t: ta, s: seatOf.get(r.a)! }, { t: tb, s: seatOf.get(r.b)! }))
         issues.push({ level: 'warn', text: `${a.name} & ${b.name} are at ${tableName(t)} but not next to each other`, guestIds: [a.id, b.id], tableId: t.id });

@@ -53,13 +53,22 @@ export interface ImportRecord {
   dismissed?: string[];
 }
 
-export type RelationKind = 'beside' | 'together' | 'prefer' | 'avoid' | 'apart';
+/** Who two guests are to each other. Where they work / how they met goes in `contexts`. */
+export type Bond = 'partner' | 'family' | 'friend' | 'coworker' | 'acquaintance' | 'tension';
+/** @deprecated use Bond */
+export type RelationKind = Bond;
+/** An explicit seating instruction that overrides what the relationship alone implies. */
+export type SeatRule = 'beside' | 'together' | 'apart';
 
 export interface Relation {
   id: Id;
   a: Id;
   b: Id;
-  kind: RelationKind;
+  kind: Bond;
+  /** Optional override: seat next to / same table / never same table. Partners default to next to. */
+  seat?: SeatRule;
+  /** How they know each other, e.g. "Fire Island", "the city", "Google". Also added to both guests' tags. */
+  contexts?: string[];
 }
 
 export type TableShape = 'round' | 'rect' | 'square' | 'oval' | 'head';
@@ -89,6 +98,8 @@ export interface Table {
   locked: boolean;
   /** Reserved for a category (e.g. "Kids"). Auto-seat prefers matching groups. */
   reservedFor: string;
+  /** Seating area this table belongs to, e.g. "Top room". Groups can be assigned to an area. */
+  area?: string;
   color: string;
 }
 
@@ -166,6 +177,16 @@ export interface Settings {
   tagColors?: Record<string, string>;
   /** Which table names to show: Chinese, English, or both. */
   tableLang?: TableLang;
+  /** Where groups should sit: each group is pulled to its tables / area by auto-seat. */
+  placements?: Placement[];
+}
+
+export interface Placement {
+  id: Id;
+  /** A tag, a partner's side ("partner1"/"partner2"), or "kids" */
+  group: string;
+  /** "area:<name>" or "table:<id>" */
+  target: string;
 }
 
 export type TableLang = 'zh' | 'en' | 'both';

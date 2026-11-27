@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { Guest, Id, Project } from './types';
 import { groupTags } from './scoring';
 import { normName } from './util';
+import { isPositive } from './relations';
 
 export interface Filters {
   q: string;
@@ -34,7 +35,7 @@ export function guestMatcher(p: Project, f: Filters, tableOf: Map<Id, Id>, disc?
   let tied: Set<Id> | null = null;
   if (f.flags.includes('noTies')) {
     tied = new Set();
-    for (const r of p.relations) if (r.kind === 'beside' || r.kind === 'together' || r.kind === 'prefer') (tied.add(r.a), tied.add(r.b));
+    for (const r of p.relations) if (isPositive(r)) (tied.add(r.a), tied.add(r.b));
     const partyCount = new Map<string, number>();
     for (const g of p.guests) if (g.party) partyCount.set(g.party, (partyCount.get(g.party) ?? 0) + 1);
     for (const g of p.guests) if (g.party && (partyCount.get(g.party) ?? 0) > 1) tied.add(g.id);

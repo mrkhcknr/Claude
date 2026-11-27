@@ -28,6 +28,8 @@ export function renameTag(from: string, to: string) {
       n++;
     }
     for (const t of d.tables) if (lc(t.reservedFor) === lc(from)) t.reservedFor = name;
+    for (const pl of d.settings.placements ?? []) if (pl.group === lc(from)) pl.group = lc(name);
+    for (const r of d.relations) if (r.contexts?.some((c) => lc(c) === lc(from))) r.contexts = [...new Map(r.contexts.map((c) => (lc(c) === lc(from) ? name : c)).map((c) => [lc(c), c])).values()];
     const colors = d.settings.tagColors;
     if (colors?.[lc(from)] && lc(from) !== lc(name)) {
       colors[lc(name)] ??= colors[lc(from)];
@@ -49,6 +51,11 @@ export function deleteTag(tag: string) {
       }
     }
     for (const t of d.tables) if (lc(t.reservedFor) === lc(tag)) t.reservedFor = '';
+    if (d.settings.placements) d.settings.placements = d.settings.placements.filter((pl) => pl.group !== lc(tag));
+    for (const r of d.relations) if (r.contexts?.some((c) => lc(c) === lc(tag))) {
+      r.contexts = r.contexts.filter((c) => lc(c) !== lc(tag));
+      if (!r.contexts.length) delete r.contexts;
+    }
     if (d.settings.tagColors) delete d.settings.tagColors[lc(tag)];
   });
   toast(`Removed "${tag}" from ${n} guest${n === 1 ? '' : 's'}`, true);

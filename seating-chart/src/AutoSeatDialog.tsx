@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { autoSeat, type AutoSeatOptions, type AutoSeatResult } from './autoSeat';
-import { getState, seatAtTable, setRelation, swapGuests, toast, update, updateTables, useStore } from './store';
+import { getState, seatAtTable, setRelation, swapGuests, tableName, toast, update, updateTables, useStore } from './store';
 import { DEFAULT_RULES, PRESETS, SLIDERS, rulesOf, type SeatingRules } from './rules';
 import { errText, getSample, proposeFromIntent, reviewSeating, type Proposal, type Suggestion } from './claude';
-import { REL_SHORT } from './scoring';
+import { describeTie } from './relations';
+import { allTags } from './filters';
+import { groupLabel, inGroup, targetHas, targetLabel } from './scoring';
+import { uid } from './util';
 import { Dialog, Icon } from './ui';
 
 type Tab = 'seat' | 'rules' | 'claude';
@@ -93,6 +96,7 @@ function SeatTab({ onDone }: { onDone: () => void }) {
           </div>
         </div>
       </div>
+      <Placements />
       <label className="check">
         <input type="checkbox" checked={opt.includePending} onChange={(e) => setOpt({ ...opt, includePending: e.target.checked })} /> Also seat guests whose RSVP is pending
       </label>
@@ -265,7 +269,7 @@ function ClaudeTab({ goSeat, goRules }: { goSeat: () => void; goRules: () => voi
         if (!cur.some((x) => x.toLowerCase() === t.add.toLowerCase())) g.group = [...cur, t.add].join(', ');
       });
     });
-    prop.ties.forEach((t, i) => !skip.has('tie:' + i) && setRelation(t.a, t.b, t.kind));
+    prop.ties.forEach((t, i) => !skip.has('tie:' + i) && setRelation(t.a, t.b, { kind: t.kind, seat: t.seat, ...(t.contexts ? { contexts: t.contexts } : {}) }));
     prop.reserve.forEach((r, i) => !skip.has('res:' + i) && updateTables([r.table], { reservedFor: r.reservedFor }));
     void R;
     toast('Applied Claude’s suggestions. Run auto-seat to use them.', true);
@@ -349,7 +353,7 @@ function ClaudeTab({ goSeat, goRules }: { goSeat: () => void; goRules: () => voi
               <span className="label">Ties</span>
               {prop.ties.map((t, i) => (
                 <label key={i} className="check">
-                  {tick('tie:' + i)} {t.aName} <span className="badge">{REL_SHORT[t.kind]}</span> {t.bName} <span className="muted">· {t.why}</span>
+                  {tick('tie:' + i)} {t.aName} <span className="badge">{describeTie(t)}</span> {t.bName} <span className="muted">· {t.why}</span>
                 </label>
               ))}
             </>
@@ -416,5 +420,78 @@ function ClaudeTab({ goSeat, goRules }: { goSeat: () => void; goRules: () => voi
         </div>
       )}
     </>
+  );
+}
+
+// ---------------- where groups sit ----------------
+function Placements() {
+  const project = useStore((s) => s.project);
+  const list = project.settings.placements ?? [];
+  const [group, setGroup] = useState('');
+  const [target, setTarget] = useState('');
+  const tags = allTags(project);
+  const areas = [...new Set(project.tables.map((t) => t.area?.trim()).filter(Boolean))] as string[];
+  const s = project.settings;
+  const groups: [string, string][] = [...tags.map((t) => [t.label.toLowerCase(), t.label] as [string, string]), ['partner1', `${s.partner1}'s side`], ['partner2', `${s.partner2}'s side`], ['kids', 'Kids']];
+  const attending = project.guests.filter((g) => g.rsvp !== 'no');
+  const add = () => {
+    if (!group || !target) return;
+    update((d) => void (d.settings.placements = [...(d.settings.placements ?? []), { id: uid(), group, target }]));
+    setGroup('');
+    setTarget('');
+  };
+  const remove = (id: string) => update((d) => void (d.settings.placements = (d.settings.placements ?? []).filter((p) => p.id !== id)));
+  return (
+    <div className="field placements">
+      <span>Where groups sit</span>
+      {list.map((pl) => {
+        const n = attending.filter((g) => inGroup(g, pl.group)).length;
+        const seats = project.tables.filter((t) => targetHas(pl.target, t)).reduce((a, t) => a + t.seats, 0);
+        return (
+          <div key={pl.id} className="placement">
+            <b>{groupLabel(pl.group, project)}</b> <span className="muted">({n})</span> → <b>{targetLabel(pl.target, project)}</b>{' '}
+            <span className={`muted ${n > seats ? 'warn-text' : ''}`}>({seats} seats)</span>
+            <button className="icon-btn sm" aria-label="Remove" onClick={() => remove(pl.id)}>
+              <Icon name="x" size="sm" />
+            </button>
+          </div>
+        );
+      })}
+      <div className="row" style={{ gap: 6 }}>
+        <select className="input" value={group} onChange={(e) => setGroup(e.target.value)} aria-label="Group">
+          <option value="">Group…</option>
+          {groups.map(([k, l]) => (
+            <option key={k} value={k}>
+              {l}
+            </option>
+          ))}
+        </select>
+        <span className="muted">sits at</span>
+        <select className="input" value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Table or area">
+          <option value="">Table or area…</option>
+          {areas.length > 0 && (
+            <optgroup label="Areas">
+              {areas.map((a) => (
+                <option key={a} value={'area:' + a}>
+                  {a}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          <optgroup label="Tables">
+            {project.tables.map((t) => (
+              <option key={t.id} value={'table:' + t.id}>
+                {t.label}
+                {tableName(t) !== t.label ? ` · ${tableName(t)}` : ''}
+              </option>
+            ))}
+          </optgroup>
+        </select>
+        <button className="btn sm" onClick={add} disabled={!group || !target}>
+          Add
+        </button>
+      </div>
+      {!areas.length && <span className="muted small">Give tables an Area (in the table panel) to assign groups to a whole room.</span>}
+    </div>
   );
 }

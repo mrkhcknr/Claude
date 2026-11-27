@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import type { Guest, Id, Project, RelationKind, RoomElement, Rsvp, Side, Table, TableShape, ZoneKind } from './types';
+import type { Bond, Guest, Id, Project, Relation, RoomElement, SeatRule, Rsvp, Side, Table, TableShape, ZoneKind } from './types';
 import {
   alignTables,
   clearTables,
@@ -11,7 +11,9 @@ import {
   locate,
   makeParty,
   nameTablesAfterFlowers,
+  addTieContext,
   relateAll,
+  toast,
   renumberTables,
   scaleRoom,
   seatAtTable,
@@ -28,7 +30,8 @@ import {
   useStore,
   ZONE_PRESETS,
 } from './store';
-import { REL_LABEL, REL_SHORT, type Analysis, type Issue } from './scoring';
+import { type Analysis, type Issue } from './scoring';
+import { BONDS, BOND_HELP, BOND_LABEL, SEAT_LABEL, SEAT_RULES } from './relations';
 import { allMeals, allTags, setFilters } from './filters';
 import { useDrag } from './dnd';
 import { RefInspector } from './RefInspector';
@@ -301,6 +304,11 @@ function TableInspector({ t, analysis }: { t: Table; analysis: Analysis }) {
           </label>
         )}
         <label className="field">
+          <span>Area</span>
+          <TextField value={t.area ?? ''} placeholder="e.g. Top room" onCommit={(v) => set({ area: v.trim() || undefined })} list="area-list" />
+          <AreaList />
+        </label>
+        <label className="field">
           <span>Reserved for</span>
           <TextField value={t.reservedFor} placeholder="e.g. Kids, Family, a group name" onCommit={(v) => set({ reservedFor: v })} list="tag-list" />
           <datalist id="tag-list">
@@ -350,7 +358,7 @@ function TableInspector({ t, analysis }: { t: Table; analysis: Analysis }) {
           <div style={{ display: 'grid', gap: 4 }}>
             {rep.conflicts.map((c, i) => (
               <div key={i} className={`issue ${c.kind === 'apart' ? 'error' : 'warn'}`}>
-                {c.a.name} & {c.b.name}: {REL_LABEL[c.kind].toLowerCase()}
+                {c.a.name} & {c.b.name}: {c.kind === 'apart' ? 'never same table' : 'tension'}
               </div>
             ))}
             {rep.isolated.map((g) => (
@@ -429,6 +437,11 @@ function MultiTable({ tables }: { tables: Table[] }) {
           <label className="field">
             <span>Rotation</span>
             <NumField value={first.rotation} onChange={(v) => updateTables(ids, { rotation: ((v % 360) + 360) % 360 })} step={15} min={-360} max={720} unit="°" />
+          </label>
+          <label className="field">
+            <span>Area</span>
+            <TextField value={tables.every((t) => t.area === first.area) ? first.area ?? '' : ''} placeholder={tables.every((t) => t.area === first.area) ? 'e.g. Top room' : 'Mixed'} onCommit={(v) => updateTables(ids, { area: v.trim() || undefined })} list="area-list" />
+            <AreaList />
           </label>
         </div>
         <div className="row">
@@ -842,32 +855,21 @@ function GuestInspector({ g, analysis }: { g: Guest; analysis: Analysis }) {
       </div>
       <div className="section">
         <h3>
-          Ties <span className="badge num">{rels.length}</span>
+          Relationships <span className="badge num">{rels.length}</span>
         </h3>
         {rels.map((r) => {
           const other = byId.get(r.a === g.id ? r.b : r.a);
           if (!other) return null;
-          return (
-            <div key={r.id} className="rel-row">
-              <button className="btn ghost sm" style={{ justifyContent: 'flex-start' }} onClick={() => setSelection({ type: 'guest', ids: [other.id] })}>
-                {other.name}
-              </button>
-              <select className="rel-kind" value={r.kind} onChange={(e) => setRelation(g.id, other.id, e.target.value as RelationKind)} aria-label="Tie type">
-                {(Object.keys(REL_LABEL) as RelationKind[]).map((k) => (
-                  <option key={k} value={k}>
-                    {REL_SHORT[k]}
-                  </option>
-                ))}
-              </select>
-              <button className="icon-btn sm" aria-label="Remove tie" onClick={() => setRelation(g.id, other.id, null)}>
-                <Icon name="x" size="sm" />
-              </button>
-            </div>
-          );
+          return <TieRow key={r.id} g={g} other={other} r={r} />;
         })}
+        <datalist id="tie-contexts">
+          {allTags(project).map((t) => (
+            <option key={t.label} value={t.label} />
+          ))}
+        </datalist>
         <AddTie g={g} guests={project.guests} />
         <button className="btn ghost sm" onClick={() => setView('network')}>
-          <Icon name="graph" size="sm" /> Edit ties in the social graph
+          <Icon name="graph" size="sm" /> Open the social graph
         </button>
       </div>
       <div className="section">
@@ -892,19 +894,71 @@ function NotesField({ g }: { g: Guest }) {
   return <textarea className="input" value={t} placeholder="Anything to remember" onChange={(e) => setT(e.target.value)} onBlur={() => t !== g.notes && updateGuests([g.id], { notes: t })} />;
 }
 
+function BondSelect({ value, onChange }: { value: Bond; onChange: (b: Bond) => void }) {
+  return (
+    <select className="rel-kind" value={value} onChange={(e) => onChange(e.target.value as Bond)} aria-label="Relationship">
+      {BONDS.map((k) => (
+        <option key={k} value={k} title={BOND_HELP[k]}>
+          {BOND_LABEL[k]}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function TieRow({ g, other, r }: { g: Guest; other: Guest; r: Relation }) {
+  const [ctx, setCtx] = useState('');
+  const addCtx = () => {
+    if (ctx.trim()) addTieContext(g.id, other.id, ctx);
+    setCtx('');
+  };
+  return (
+    <div className={`tie b-${r.kind}`}>
+      <div className="rel-row">
+        <button className="btn ghost sm" style={{ justifyContent: 'flex-start' }} onClick={() => setSelection({ type: 'guest', ids: [other.id] })}>
+          <span className="sw" /> {other.name}
+        </button>
+        <BondSelect value={r.kind} onChange={(kind) => setRelation(g.id, other.id, { kind })} />
+        <button className="icon-btn sm" aria-label="Remove tie" onClick={() => setRelation(g.id, other.id, null)}>
+          <Icon name="x" size="sm" />
+        </button>
+      </div>
+      <div className="tie-detail">
+        {(r.contexts ?? []).map((c) => (
+          <span key={c} className="chip ctx">
+            {c}
+            <button aria-label={`Remove ${c}`} onClick={() => setRelation(g.id, other.id, { contexts: (r.contexts ?? []).filter((x) => x !== c) })}>
+              ×
+            </button>
+          </span>
+        ))}
+        <input className="ctx-input" value={ctx} list="tie-contexts" placeholder="+ how they know each other" onChange={(e) => setCtx(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addCtx()} onBlur={addCtx} aria-label="Add context" />
+        <select className="rel-kind seat" value={r.seat ?? ''} onChange={(e) => setRelation(g.id, other.id, { seat: (e.target.value || undefined) as SeatRule | undefined })} aria-label="Seating instruction">
+          <option value="">{r.kind === 'partner' ? 'Next to (partner)' : 'No seating rule'}</option>
+          {SEAT_RULES.map((k) => (
+            <option key={k} value={k}>
+              {SEAT_LABEL[k]}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
 function AddTie({ g, guests }: { g: Guest; guests: Guest[] }) {
   const [q, setQ] = useState('');
-  const [kind, setKind] = useState<RelationKind>('prefer');
+  const [kind, setKind] = useState<Bond>('friend');
   const listId = 'ties-' + g.id;
   const add = () => {
     const other = guests.find((x) => x.name.toLowerCase() === q.trim().toLowerCase() && x.id !== g.id);
     if (!other) return;
-    setRelation(g.id, other.id, kind);
+    setRelation(g.id, other.id, { kind });
     setQ('');
   };
   return (
     <div className="rel-row">
-      <input className="input" value={q} list={listId} placeholder="Add a tie with…" onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
+      <input className="input" value={q} list={listId} placeholder="Add a relationship with…" onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} />
       <datalist id={listId}>
         {guests
           .filter((x) => x.id !== g.id)
@@ -912,13 +966,7 @@ function AddTie({ g, guests }: { g: Guest; guests: Guest[] }) {
             <option key={x.id} value={x.name} />
           ))}
       </datalist>
-      <select className="rel-kind" value={kind} onChange={(e) => setKind(e.target.value as RelationKind)} aria-label="Tie type">
-        {(Object.keys(REL_LABEL) as RelationKind[]).map((k) => (
-          <option key={k} value={k}>
-            {REL_SHORT[k]}
-          </option>
-        ))}
-      </select>
+      <BondSelect value={kind} onChange={setKind} />
       <button className="icon-btn sm" onClick={add} aria-label="Add tie">
         <Icon name="plus" size="sm" />
       </button>
@@ -981,26 +1029,35 @@ export function MultiGuest({ guests }: { guests: Guest[] }) {
         </button>
       </div>
       <div className="section">
-        <h3>Ties between them</h3>
+        <h3>Relationships between them</h3>
         <div className="row" style={{ gap: 5 }}>
           <button className="btn sm" onClick={() => makeParty(ids)} title="Always seated together, as one household">
             Make a household
           </button>
-          <button className="btn sm" onClick={() => relateAll(ids, 'beside')} title="Auto-seat puts them in adjacent chairs">
+          {ids.length === 2 && (
+            <button className="btn sm" onClick={() => relateAll(ids, { kind: 'partner' })} title="A couple: seated side by side">
+              Partners
+            </button>
+          )}
+          {(['family', 'friend', 'coworker', 'acquaintance'] as const).map((k) => (
+            <button key={k} className="btn sm" onClick={() => relateAll(ids, { kind: k })} title={BOND_HELP[k]}>
+              {k === 'family' ? 'Family' : BOND_LABEL[k] + 's'}
+            </button>
+          ))}
+          <button className="btn sm" onClick={() => relateAll(ids, { kind: 'tension', seat: 'apart' })}>
+            Keep apart
+          </button>
+        </div>
+        <div className="row" style={{ gap: 5, marginTop: 6 }}>
+          <button className="btn sm" onClick={() => relateAll(ids, { seat: 'beside' })} title="Auto-seat puts them in adjacent chairs">
             Seat next to each other
           </button>
-          <button className="btn sm" onClick={() => relateAll(ids, 'together')}>
+          <button className="btn sm" onClick={() => relateAll(ids, { seat: 'together' })}>
             Same table
           </button>
-          <button className="btn sm" onClick={() => relateAll(ids, 'prefer')}>
-            Prefer together
-          </button>
-          <button className="btn sm" onClick={() => relateAll(ids, 'avoid')}>
-            Prefer apart
-          </button>
-          <button className="btn sm" onClick={() => relateAll(ids, 'apart')}>
-            Never same table
-          </button>
+        </div>
+        <MetThrough ids={ids} />
+        <div className="row" style={{ gap: 5, marginTop: 6 }}>
           <button className="btn ghost sm" onClick={() => relateAll(ids, null)}>
             Clear ties
           </button>
@@ -1060,3 +1117,41 @@ export function MultiGuest({ guests }: { guests: Guest[] }) {
 
 export { fmtLen, uid, seatGuest };
 export type { Id, Project };
+
+/** "How do they know each other?" for a selection: adds the context to every tie between them. */
+function MetThrough({ ids }: { ids: Id[] }) {
+  const project = useStore((s) => s.project);
+  const [v, setV] = useState('');
+  const go = () => {
+    if (!v.trim()) return;
+    relateAll(ids, { contexts: [v.trim()] });
+    toast(`Added "${v.trim()}" to ties between ${ids.length} guests`, true);
+    setV('');
+  };
+  return (
+    <div className="row" style={{ gap: 5, marginTop: 6 }}>
+      <input className="input" style={{ flex: 1 }} value={v} list="met-through" placeholder="How they know each other (Fire Island, Google…)" onChange={(e) => setV(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && go()} />
+      <datalist id="met-through">
+        {allTags(project).map((t) => (
+          <option key={t.label} value={t.label} />
+        ))}
+      </datalist>
+      <button className="btn sm" onClick={go} disabled={!v.trim()}>
+        Add
+      </button>
+    </div>
+  );
+}
+
+/** Existing seating areas, for the Area pickers. */
+function AreaList() {
+  const tables = useStore((s) => s.project.tables);
+  const areas = [...new Set(tables.map((t) => t.area?.trim()).filter(Boolean))] as string[];
+  return (
+    <datalist id="area-list">
+      {areas.map((a) => (
+        <option key={a} value={a} />
+      ))}
+    </datalist>
+  );
+}

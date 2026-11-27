@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import { produce, type Draft } from 'immer';
-import type { Guest, Id, Project, RelationKind, RoomElement, Selection, Table, TableLang, TableShape, Tool, ZoneKind } from './types';
+import type { Guest, Id, Project, Relation, RoomElement, Selection, Table, TableLang, TableShape, Tool, ZoneKind } from './types';
 import { splitFlowerName, uid } from './util';
 import { packSeats } from './geometry';
+import { migrateRelation } from './relations';
 import { ask } from './ui';
 
 export const STORAGE_KEY = 'wedding-seating:project:v1';
@@ -61,8 +62,8 @@ function loadInitial(): Project {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return migrate(JSON.parse(raw));
-  } catch {
-    /* storage unavailable */
+  } catch (e) {
+    console.warn('Could not load the saved seating chart', e);
   }
   return emptyProject();
 }
@@ -74,7 +75,7 @@ export function migrate(p: Partial<Project>): Project {
     ...p,
     settings: { ...base.settings, ...(p.settings ?? {}) },
     guests: (p.guests ?? []).map((g) => ({ ...blankGuest(), ...g })),
-    relations: p.relations ?? [],
+    relations: (p.relations ?? []).map(migrateRelation),
     tables: (p.tables ?? []).map((t) => splitTableName({ ...tableDefaults(), ...t })),
     elements: p.elements ?? [],
     refs: p.refs ?? [],
@@ -172,7 +173,9 @@ export const focusGuest = (id: Id | null) => {
 };
 
 // ---------- defaults & presets ----------
-export const blankGuest = (): Guest => ({
+// function declarations are hoisted: loadInitial() needs these before this line runs
+export function blankGuest(): Guest {
+  return {
   id: uid(),
   name: '',
   party: '',
@@ -185,9 +188,12 @@ export const blankGuest = (): Guest => ({
   accessible: false,
   notes: '',
   pinned: false,
-});
+  };
+}
 
-export const tableDefaults = (): Table => ({
+// function declarations are hoisted: loadInitial() needs these before this line runs
+export function tableDefaults(): Table {
+  return {
   id: uid(),
   shape: 'round',
   label: '',
@@ -201,7 +207,8 @@ export const tableDefaults = (): Table => ({
   locked: false,
   reservedFor: '',
   color: '',
-});
+  };
+}
 
 export interface TablePreset {
   key: string;
@@ -280,26 +287,72 @@ export function makeParty(ids: Id[]) {
 }
 
 // ---------- relations ----------
-export function setRelation(a: Id, b: Id, kind: RelationKind | null) {
+export type TiePatch = Partial<Pick<Relation, 'kind' | 'seat' | 'contexts'>>;
+
+const pairKey = (a: Id, b: Id) => (a < b ? a + '|' + b : b + '|' + a);
+
+/** Contexts on a tie ("Fire Island", "Google") also become tags on both guests. */
+function tagBoth(d: Draft<Project>, ids: Id[], contexts: string[] | undefined) {
+  if (!contexts?.length) return;
+  for (const g of d.guests) {
+    if (!ids.includes(g.id)) continue;
+    const cur = g.group.split(/[,;|]/).map((x) => x.trim()).filter(Boolean);
+    const add = contexts.filter((c) => c.trim() && !cur.some((x) => x.toLowerCase() === c.trim().toLowerCase()));
+    if (add.length) g.group = [...cur, ...add.map((c) => c.trim())].join(', ');
+  }
+}
+
+function applyTie(d: Draft<Project>, a: Id, b: Id, patch: TiePatch | null) {
+  const i = d.relations.findIndex((r) => pairKey(r.a, r.b) === pairKey(a, b));
+  if (!patch) {
+    if (i >= 0) d.relations.splice(i, 1);
+    return;
+  }
+  const r: Relation = i >= 0 ? d.relations[i] : { id: uid(), a, b, kind: patch.kind ?? 'friend' };
+  if (patch.kind) r.kind = patch.kind;
+  if ('seat' in patch) {
+    if (patch.seat) r.seat = patch.seat;
+    else delete r.seat;
+  }
+  if ('contexts' in patch) {
+    const cs = [...new Map((patch.contexts ?? []).map((c) => c.trim()).filter(Boolean).map((c) => [c.toLowerCase(), c])).values()];
+    if (cs.length) r.contexts = cs;
+    else delete r.contexts;
+  }
+  if (i < 0) d.relations.push(r);
+  tagBoth(d, [a, b], r.contexts);
+}
+
+/** Create, change or (with null) remove the tie between two guests. Unspecified fields are kept. */
+export function setRelation(a: Id, b: Id, patch: TiePatch | null) {
   if (a === b) return;
+  update((d) => applyTie(d, a, b, patch));
+}
+
+/** Add a context ("Fire Island") to the tie between two guests, creating a friend tie if needed. */
+export function addTieContext(a: Id, b: Id, context: string) {
+  const c = context.trim();
+  if (!c || a === b) return;
   update((d) => {
-    d.relations = d.relations.filter((r) => !((r.a === a && r.b === b) || (r.a === b && r.b === a)));
-    if (kind) d.relations.push({ id: uid(), a, b, kind });
+    const r = d.relations.find((x) => pairKey(x.a, x.b) === pairKey(a, b));
+    const cur = r?.contexts ?? [];
+    applyTie(d, a, b, { contexts: cur.some((x) => x.toLowerCase() === c.toLowerCase()) ? cur : [...cur, c] });
   });
 }
 
-/** Apply a relation between every pair in ids. */
-export function relateAll(ids: Id[], kind: RelationKind | null) {
+/** Apply a tie between every pair in ids (null removes them). Contexts are added to existing ones. */
+export function relateAll(ids: Id[], patch: TiePatch | null) {
   if (ids.length < 2) return;
-  const key = (a: Id, b: Id) => (a < b ? a + '|' + b : b + '|' + a);
-  const pairs = new Set<string>();
-  for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) pairs.add(key(ids[i], ids[j]));
   update((d) => {
-    d.relations = d.relations.filter((r) => !pairs.has(key(r.a, r.b)));
-    if (kind) for (const p of pairs) {
-      const [a, b] = p.split('|');
-      d.relations.push({ id: uid(), a, b, kind });
-    }
+    for (let i = 0; i < ids.length; i++)
+      for (let j = i + 1; j < ids.length; j++) {
+        if (patch?.contexts) {
+          const r = d.relations.find((x) => pairKey(x.a, x.b) === pairKey(ids[i], ids[j]));
+          const cur = r?.contexts ?? [];
+          const merged = [...cur, ...patch.contexts.filter((c) => !cur.some((x) => x.toLowerCase() === c.trim().toLowerCase()))];
+          applyTie(d, ids[i], ids[j], { ...patch, contexts: merged });
+        } else applyTie(d, ids[i], ids[j], patch);
+      }
   });
 }
 

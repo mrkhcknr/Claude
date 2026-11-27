@@ -19,7 +19,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "彩虹鳥蕉",
-   "nameEn": "Heliconia"
+   "nameEn": "Heliconia",
+   "area": "Center room"
   },
   {
    "id": "t2",
@@ -36,7 +37,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "白花天堂鳥",
-   "nameEn": "Strelitzia nicolai"
+   "nameEn": "Strelitzia nicolai",
+   "area": "Center room"
   },
   {
    "id": "t3",
@@ -53,7 +55,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "垂鳥蕉",
-   "nameEn": "Heliconia rostrata"
+   "nameEn": "Heliconia rostrata",
+   "area": "Center room"
   },
   {
    "id": "t4",
@@ -70,7 +73,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "山蘇",
-   "nameEn": "Asplenium nidus Linn"
+   "nameEn": "Asplenium nidus Linn",
+   "area": "Center room"
   },
   {
    "id": "t5",
@@ -87,7 +91,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "萬代蘭",
-   "nameEn": "Vanda coerulea"
+   "nameEn": "Vanda coerulea",
+   "area": "Center room"
   },
   {
    "id": "t6",
@@ -104,7 +109,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "文心蘭",
-   "nameEn": "Oncidium，Dancing-Doll Orchid"
+   "nameEn": "Oncidium，Dancing-Doll Orchid",
+   "area": "Center room"
   },
   {
    "id": "t7",
@@ -121,7 +127,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "東亞蘭",
-   "nameEn": "Cymbidium"
+   "nameEn": "Cymbidium",
+   "area": "Center room"
   },
   {
    "id": "t8",
@@ -138,7 +145,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "石斛蘭",
-   "nameEn": "Dendrobium nobile"
+   "nameEn": "Dendrobium nobile",
+   "area": "Center room"
   },
   {
    "id": "t9",
@@ -155,7 +163,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "蝴蝶蘭",
-   "nameEn": "Phalaenopsis sp"
+   "nameEn": "Phalaenopsis sp",
+   "area": "Center room"
   },
   {
    "id": "t10",
@@ -172,7 +181,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "拖鞋蘭（又稱仙履蘭、兜蘭）",
-   "nameEn": "Paphiopedilum"
+   "nameEn": "Paphiopedilum",
+   "area": "Center room"
   },
   {
    "id": "t11",
@@ -189,7 +199,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "粗肋草",
-   "nameEn": "Aglaonema"
+   "nameEn": "Aglaonema",
+   "area": "Right room"
   },
   {
    "id": "t12",
@@ -206,7 +217,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "彩葉芋",
-   "nameEn": "Caladium bicolor"
+   "nameEn": "Caladium bicolor",
+   "area": "Right room"
   },
   {
    "id": "t13",
@@ -223,7 +235,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "窗簾蕨",
-   "nameEn": "Nephrolepis pendula (Raddi) J. Sm"
+   "nameEn": "Nephrolepis pendula (Raddi) J. Sm",
+   "area": "Right room"
   },
   {
    "id": "t14",
@@ -240,7 +253,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "魚尾山蘇",
-   "nameEn": "Asplenium 'Crissi"
+   "nameEn": "Asplenium 'Crissi",
+   "area": "Right room"
   },
   {
    "id": "t15",
@@ -257,7 +271,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "兔腳蕨",
-   "nameEn": "Davallia mariesii"
+   "nameEn": "Davallia mariesii",
+   "area": "Right room"
   },
   {
    "id": "t21",
@@ -274,7 +289,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "火鶴",
-   "nameEn": "Anthurium"
+   "nameEn": "Anthurium",
+   "area": "Head tables"
   },
   {
    "id": "t22",
@@ -291,7 +307,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "天堂鳥",
-   "nameEn": "Strelitzia reginae"
+   "nameEn": "Strelitzia reginae",
+   "area": "Head tables"
   },
   {
    "id": "t16",
@@ -308,7 +325,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "魚尾蕨",
-   "nameEn": "Microsorum punctatum"
+   "nameEn": "Microsorum punctatum",
+   "area": "Top room"
   },
   {
    "id": "t17",
@@ -325,7 +343,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "芒萁",
-   "nameEn": "Dicranopteris linearis (Burm. f.) Underw."
+   "nameEn": "Dicranopteris linearis (Burm. f.) Underw.",
+   "area": "Top room"
   },
   {
    "id": "t18",
@@ -342,7 +361,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "月桃葉",
-   "nameEn": "Alpinia zerumbet"
+   "nameEn": "Alpinia zerumbet",
+   "area": "Top room"
   },
   {
    "id": "t19",
@@ -359,7 +379,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "高山杜鵑",
-   "nameEn": "Rhododendron lapponicum"
+   "nameEn": "Rhododendron lapponicum",
+   "area": "Top room"
   },
   {
    "id": "t20",
@@ -376,7 +397,8 @@
    "reservedFor": "",
    "color": "",
    "nameZh": "蔓梅擬",
-   "nameEn": "Celastrus orbiculatus"
+   "nameEn": "Celastrus orbiculatus",
+   "area": "Top room"
   }
  ],
  "elements": [

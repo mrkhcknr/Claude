@@ -3,7 +3,8 @@
  * into rule weights and ties, and to review a finished seating. Claude proposes; the person approves;
  * the optimiser does the actual placement.
  */
-import type { Id, Project, RelationKind } from './types';
+import type { Bond, Id, Project, SeatRule } from './types';
+import { BONDS, SEAT_RULES } from './relations';
 import { DEFAULT_RULES, SLIDERS, rulesOf, type SeatingRules } from './rules';
 import { tableName } from './store';
 import { analyse, groupTags } from './scoring';
@@ -61,8 +62,8 @@ function roster(p: Project) {
   });
   const ties = p.relations
     .filter((r) => gid.has(r.a) && gid.has(r.b))
-    .map((r) => `${gid.get(r.a)} ${r.kind} ${gid.get(r.b)}`);
-  const tables = p.tables.map((t) => `${tid.get(t.id)} | ${tableName(t)} | ${t.seats} seats${t.reservedFor ? ` | reserved for ${t.reservedFor}` : ''}`);
+    .map((r) => `${gid.get(r.a)} ${r.kind}${r.seat ? '+' + r.seat : ''}${r.contexts?.length ? ` (${r.contexts.join('; ')})` : ''} ${gid.get(r.b)}`);
+  const tables = p.tables.map((t) => `${tid.get(t.id)} | ${tableName(t)} | ${t.seats} seats${t.area ? ` | area: ${t.area}` : ''}${t.reservedFor ? ` | reserved for ${t.reservedFor}` : ''}`);
   return { gid, back, tid, tback, lines, ties, tables };
 }
 
@@ -81,13 +82,12 @@ const RULE_DOC = SLIDERS.flatMap((s) => s.items)
 export interface Proposal {
   summary: string;
   rules: Partial<SeatingRules>;
-  ties: { a: Id; b: Id; kind: RelationKind; why: string; aName: string; bName: string }[];
+  ties: { a: Id; b: Id; kind: Bond; seat?: SeatRule; contexts?: string[]; why: string; aName: string; bName: string }[];
   tags: { guest: Id; name: string; add: string }[];
   reserve: { table: Id; name: string; reservedFor: string }[];
   questions: string[];
 }
 
-const KINDS: RelationKind[] = ['beside', 'together', 'prefer', 'avoid', 'apart'];
 
 export async function proposeFromIntent(p: Project, intent: string, signal?: AbortSignal, onText?: (t: string) => void): Promise<Proposal> {
   const sample = await getSample();
@@ -104,19 +104,21 @@ PARTNERS: ${p.settings.partner1} and ${p.settings.partner2} (the "side" column s
 GUESTS (id | name | tags | side | household | child | accessible | current table):
 ${r.lines.join('\n')}
 
-TABLES (id | name | seats | reservation):
+TABLES (id | name | seats | area | reservation):
 ${r.tables.join('\n')}
 
-EXISTING TIES (a kind b): ${r.ties.join(', ') || 'none'}
-Tie kinds: beside = adjacent chairs; together = same table; prefer = mild pull; avoid = mild push; apart = never the same table.
+EXISTING TIES (a relationship[+seating rule] (how they know each other) b): ${r.ties.join(', ') || 'none'}
+Relationships: partner (a couple; seated side by side), family, friend, coworker, acquaintance, tension (better at different tables).
+Optional seating rule on a tie: beside = adjacent chairs; together = same table; apart = never the same table.
+Context = how they know each other or where they work (e.g. "Fire Island", "Google"); contexts also become guest tags.
 
 CURRENT RULE WEIGHTS: ${JSON.stringify(cur)}
 RULES YOU CAN CHANGE:
 ${RULE_DOC}
 
 Reply with only JSON in exactly this shape (omit nothing; use [] or {} when empty):
-{"summary":"2-3 plain sentences on what you changed and why","rules":{ only the keys you change },"ties":[{"a":"g12","b":"g40","kind":"beside","why":"short reason"}],"tags":[{"guest":"g7","add":"Tag name"}],"reserve":[{"table":"t3","reservedFor":"Tag name or Kids"}],"questions":["only if something important is ambiguous, e.g. a name that matches two guests"]}
-Use only ids listed above. Prefer rule changes and tags for broad wishes ("mix the families", "college friends together"); add ties only for specific people they name. Never invent guests.`;
+{"summary":"2-3 plain sentences on what you changed and why","rules":{ only the keys you change },"ties":[{"a":"g12","b":"g40","kind":"friend","seat":"beside","context":"Fire Island","why":"short reason"}],"tags":[{"guest":"g7","add":"Tag name"}],"reserve":[{"table":"t3","reservedFor":"Tag name or Kids"}],"questions":["only if something important is ambiguous, e.g. a name that matches two guests"]}
+Use only ids listed above. Prefer rule changes and tags for broad wishes ("mix the families", "college friends together"); add ties only for specific people they name; \"seat\" and \"context\" are optional. Never invent guests.`;
   const raw = await sample.json<Record<string, unknown>>(prompt, { signal, cache: false, onText: onText ? ({ text }: { text: string }) => onText(text) : undefined });
   const byId = new Map(p.guests.map((g) => [g.id, g]));
   const out: Proposal = { summary: String(raw.summary ?? ''), rules: {}, ties: [], tags: [], reserve: [], questions: [] };
@@ -131,11 +133,13 @@ Use only ids listed above. Prefer rule changes and tags for broad wishes ("mix t
     else if (k === 'household' && ['adjacent', 'table', 'soft'].includes(String(v))) out.rules.household = v as SeatingRules['household'];
     else if (k === 'balance' && ['even', 'full'].includes(String(v))) out.rules.balance = v as SeatingRules['balance'];
   }
-  for (const t of (raw.ties as { a: string; b: string; kind: string; why?: string }[]) ?? []) {
+  for (const t of (raw.ties as { a: string; b: string; kind: string; seat?: string; context?: string; why?: string }[]) ?? []) {
     const a = r.back.get(t.a),
       b = r.back.get(t.b);
-    if (!a || !b || a === b || !KINDS.includes(t.kind as RelationKind)) continue;
-    out.ties.push({ a, b, kind: t.kind as RelationKind, why: String(t.why ?? ''), aName: byId.get(a)!.name, bName: byId.get(b)!.name });
+    if (!a || !b || a === b || !BONDS.includes(t.kind as Bond)) continue;
+    const seat = SEAT_RULES.includes(t.seat as SeatRule) ? (t.seat as SeatRule) : undefined;
+    const ctx = typeof t.context === 'string' && t.context.trim() ? [t.context.trim()] : undefined;
+    out.ties.push({ a, b, kind: t.kind as Bond, seat, contexts: ctx, why: String(t.why ?? ''), aName: byId.get(a)!.name, bName: byId.get(b)!.name });
   }
   for (const t of (raw.tags as { guest: string; add: string }[]) ?? []) {
     const g = r.back.get(t.guest);
@@ -176,7 +180,7 @@ ${focus.trim() ? `\nTHE COUPLE'S FOCUS: """${focus}"""\n` : ''}
 GUESTS (id | name | tags | side | household | child | accessible | current table):
 ${r.lines.join('\n')}
 
-TIES (a kind b): ${r.ties.join(', ') || 'none'}
+TIES (a relationship[+seating rule] (context) b): ${r.ties.join(', ') || 'none'}
 Households (same h-number) must stay together: never split them; move or swap a whole household only by listing it as separate suggestions.
 
 SEATING:
