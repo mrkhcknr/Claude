@@ -5,7 +5,7 @@
 import type { Guest, Id, Rsvp } from './types';
 import { toRsvp, type Parsed } from './importer';
 import { scrubText } from './privacy';
-import { lastName, likelySame, matchKey, normName } from './util';
+import { familyName, guestKeys, joinName, likelySame, nameKeys, normName } from './util';
 
 export type CField = 'name' | 'first' | 'last' | 'extId' | 'rsvp' | 'meal' | 'dietary' | 'notes';
 export const CFIELDS: { f: CField; label: string; re: RegExp }[] = [
@@ -68,7 +68,7 @@ export function buildRows(parsed: Parsed, m: Partial<Record<CField, string>>): C
   const get = (r: Record<string, string>, f: CField) => (m[f] ? scrubText((r[m[f]!] ?? '').toString().trim()) : '');
   return parsed.rows
     .map((r, i) => {
-      const name = get(r, 'name') || [get(r, 'first'), get(r, 'last')].filter(Boolean).join(' ');
+      const name = get(r, 'name') || joinName(get(r, 'first'), get(r, 'last'));
       const raw = get(r, 'rsvp');
       return { i, fileName: name, rsvp: m.rsvp ? (raw ? toRsvp(raw) : null) : null, rawRsvp: raw, meal: get(r, 'meal'), dietary: get(r, 'dietary'), notes: get(r, 'notes'), guestId: null, how: 'none' as MatchHow, candidates: [], extId: get(r, 'extId') };
     })
@@ -79,11 +79,19 @@ export function buildRows(parsed: Parsed, m: Partial<Record<CField, string>>): C
 /** Match file rows to guests: Joy ID, then exact name, then "Last, First", then a unique close spelling. */
 export function matchRows(rows: (CrossRow & { extId?: string })[], guests: Guest[]): CrossRow[] {
   const byExt = new Map(guests.filter((g) => g.extId).map((g) => [g.extId!, g.id]));
+  // every spelling a guest is known by (name + aliases), exact order and either order
   const byName = new Map<string, Id[]>();
+  const byLoose = new Map<string, Id[]>();
+  const add = (m: Map<string, Id[]>, k: string, id: Id) => {
+    const cur = m.get(k) ?? [];
+    if (!cur.includes(id)) m.set(k, [...cur, id]);
+  };
   for (const g of guests) {
-    const k = matchKey(g.name);
-    if (k) byName.set(k, [...(byName.get(k) ?? []), g.id]);
+    const ks = guestKeys(g);
+    ks.exact.forEach((k) => add(byName, k, g.id));
+    ks.loose.forEach((k) => add(byLoose, k, g.id));
   }
+  const look = (m: Map<string, Id[]>, keys: string[]) => [...new Set(keys.flatMap((k) => m.get(k) ?? []))];
   const taken = new Set<Id>();
   const out: CrossRow[] = [];
   // pass 1: certain matches
@@ -94,8 +102,10 @@ export function matchRows(rows: (CrossRow & { extId?: string })[], guests: Guest
       id = byExt.get(r.extId);
       how = 'id';
     } else {
-      const exact = byName.get(matchKey(r.fileName)) ?? [];
-      const rev = /,/.test(r.fileName) ? byName.get(matchKey(r.fileName.split(',').reverse().join(' '))) ?? [] : [];
+      const k = nameKeys(r.fileName);
+      const exact = look(byName, k.exact);
+      const commaRev = /,/.test(r.fileName) ? nameKeys(r.fileName.split(',').reverse().join(' ')).exact : [];
+      const rev = look(byName, [...k.loose, ...commaRev]).concat(look(byLoose, k.exact)).filter((x, i, a) => a.indexOf(x) === i);
       if (exact.length === 1) {
         id = exact[0];
         how = 'name';
@@ -123,8 +133,8 @@ export function matchRows(rows: (CrossRow & { extId?: string })[], guests: Guest
 }
 
 function sameInitialAndLast(a: string, b: string) {
-  const la = lastName(normName(a)),
-    lb = lastName(normName(b));
+  const la = familyName(a),
+    lb = familyName(b);
   if (!la || la !== lb) return false;
   return normName(a)[0] === normName(b)[0];
 }

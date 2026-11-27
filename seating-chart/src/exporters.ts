@@ -1,6 +1,6 @@
 import type { Guest, Project, Table } from './types';
 import { CHAIR_R, projectBounds, seatLocal, tableFootprint, toWorld } from './geometry';
-import { tableName, toast } from './store';
+import { hasTableName, tableName, toast } from './store';
 import { getDownloads } from './sync';
 import { download, firstName, initials, lastName, slug } from './util';
 import { groupTags } from './scoring';
@@ -41,12 +41,12 @@ const rsvpLabel = (g: Guest) => (g.rsvp === 'yes' ? 'Attending' : g.rsvp === 'no
 
 export function guestListCsv(p: Project) {
   const idx = seatIndex(p);
-  const rows: unknown[][] = [['Guest', 'Table', 'Table number', 'Seat', 'Meal', 'Dietary / allergies', 'RSVP', 'Side', 'Groups', 'Household', 'Child', 'Notes']];
+  const rows: unknown[][] = [['Guest', 'Also known as', 'Table (中文)', 'Table (English)', 'Table number', 'Seat', 'Meal', 'Dietary / allergies', 'RSVP', 'Side', 'Groups', 'Household', 'Child', 'Notes']];
   const party = new Map<string, string[]>();
   for (const g of p.guests) if (g.party) party.set(g.party, [...(party.get(g.party) ?? []), g.name]);
   for (const g of [...p.guests].sort(byLast)) {
     const s = idx.get(g.id);
-    rows.push([g.name, s ? tableName(s.t) : '', s?.t.label ?? '', s?.seat ?? '', g.meal, g.dietary, rsvpLabel(g), sideLabel(p, g), groupTags(g).join('; '), (party.get(g.party) ?? []).filter((n) => n !== g.name).join('; '), g.child ? 'Yes' : '', g.notes]);
+    rows.push([g.name, (g.aliases ?? []).join('; '), s?.t.nameZh ?? '', s?.t.nameEn ?? '', s?.t.label ?? '', s?.seat ?? '', g.meal, g.dietary, rsvpLabel(g), sideLabel(p, g), groupTags(g).join('; '), (party.get(g.party) ?? []).filter((n) => n !== g.name).join('; '), g.child ? 'Yes' : '', g.notes]);
   }
   return toCsv(rows);
 }
@@ -55,10 +55,10 @@ const sortTables = (ts: Table[]) => [...ts].sort((a, b) => a.label.localeCompare
 
 export function tablesCsv(p: Project) {
   const byId = new Map(p.guests.map((g) => [g.id, g]));
-  const rows: unknown[][] = [['Table', 'Table number', 'Seat', 'Guest', 'Meal', 'Dietary / allergies']];
+  const rows: unknown[][] = [['Table number', 'Table (中文)', 'Table (English)', 'Seat', 'Guest', 'Meal', 'Dietary / allergies']];
   for (const t of sortTables(p.tables)) (p.seating[t.id] ?? []).forEach((gid, i) => {
     const g = gid ? byId.get(gid) : undefined;
-    rows.push([tableName(t), t.label, i + 1, g?.name ?? '(empty)', g?.meal ?? '', g?.dietary ?? '']);
+    rows.push([t.label, t.nameZh ?? '', t.nameEn ?? '', i + 1, g?.name ?? '(empty)', g?.meal ?? '', g?.dietary ?? '']);
   });
   return toCsv(rows);
 }
@@ -77,9 +77,9 @@ export function mealSummary(p: Project) {
 
 export function catererCsv(p: Project) {
   const { meals, rows, totals } = mealSummary(p);
-  const out: unknown[][] = [['Table', 'Table number', 'Guests', ...meals, 'Dietary notes']];
-  for (const r of rows) out.push([tableName(r.t), r.t.label, r.gs.length, ...r.counts, r.dietary.join(' | ')]);
-  out.push(['Total', '', rows.reduce((a, r) => a + r.gs.length, 0), ...totals, '']);
+  const out: unknown[][] = [['Table number', 'Table (中文)', 'Table (English)', 'Guests', ...meals, 'Dietary notes']];
+  for (const r of rows) out.push([r.t.label, r.t.nameZh ?? '', r.t.nameEn ?? '', r.gs.length, ...r.counts, r.dietary.join(' | ')]);
+  out.push(['Total', '', '', rows.reduce((a, r) => a + r.gs.length, 0), ...totals, '']);
   return toCsv(out);
 }
 
@@ -136,7 +136,7 @@ export function planSvg(p: Project, opts: { names?: boolean; scale?: number } = 
           : `<rect x="${-t.w / 2}" y="${-t.h / 2}" width="${t.w}" height="${t.h}" rx="0.15"`;
     parts.push(`<g transform="translate(${t.x} ${t.y}) rotate(${t.rotation})">${shape} fill="${C.table}" stroke="${C.tableLine}" stroke-width="0.09"/></g>`);
     const nm = tableName(t);
-    const sub = t.name?.trim() && t.name.trim() !== t.label ? t.label : '';
+    const sub = hasTableName(t) ? t.label : '';
     parts.push(`<text x="${t.x}" y="${t.y + (sub ? -0.1 : 0.35)}" text-anchor="middle" font-family="Georgia, serif" font-size="1" fill="${C.ink}">${esc(nm)}</text>`);
     if (sub) parts.push(`<text x="${t.x}" y="${t.y + 0.85}" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="0.55" letter-spacing="0.05" fill="${C.muted}">${esc(sub.toUpperCase())}</text>`);
     const seats = p.seating[t.id] ?? [];
@@ -192,7 +192,7 @@ export function seatingChartHtml(p: Project) {
   const cards = tables
     .map((t) => {
       const gs = (p.seating[t.id] ?? []).map((x) => (x ? byId.get(x) : undefined)).filter((g): g is Guest => !!g);
-      return `<section class="card"><h3>${esc(tableName(t))}</h3>${t.name ? `<div class="num">${esc(t.label)}</div>` : ''}<ol>${gs.map((g) => `<li>${esc(g.name)}${g.meal ? ` <span class="meal">${esc(g.meal)}</span>` : ''}${g.dietary ? ` <span class="diet">${esc(g.dietary)}</span>` : ''}</li>`).join('')}</ol></section>`;
+      return `<section class="card"><h3>${esc(tableName(t))}</h3>${hasTableName(t) ? `<div class="num">${esc(t.label)}</div>` : ''}<ol>${gs.map((g) => `<li>${esc(g.name)}${g.meal ? ` <span class="meal">${esc(g.meal)}</span>` : ''}${g.dietary ? ` <span class="diet">${esc(g.dietary)}</span>` : ''}</li>`).join('')}</ol></section>`;
     })
     .join('');
   const escort = p.guests

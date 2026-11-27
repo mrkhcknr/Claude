@@ -2295,3 +2295,6 @@ select.cell-input.rsvp-pending {
 .swatch:hover {
   transform: scale(1.12);
 }
+
+.lang-seg button { padding-inline: 0.55rem; font-variant-numeric: normal; }
+@media (max-width: 640px) { .lang-seg button { padding-inline: 0.4rem; } }

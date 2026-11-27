@@ -4,7 +4,7 @@
  */
 import type { Guest, Id, ImportRecord, Project, Rsvp } from './types';
 import { update } from './store';
-import { normName, uid } from './util';
+import { knownAs, normName, uid } from './util';
 
 export type DiscKind = 'rsvp' | 'meal' | 'dietary' | 'missing' | 'unmatched';
 
@@ -104,6 +104,8 @@ export function linkUnmatched(d: Discrepancy, guestId: Id) {
     if (!imp) return;
     imp.unmatched = imp.unmatched.filter((n) => n !== d.name);
     imp.covered = [...new Set([...imp.covered, guestId])];
+    const g = p.guests.find((x) => x.id === guestId);
+    if (g && d.name && !knownAs(g, d.name)) g.aliases = [...(g.aliases ?? []), d.name];
   });
 }
 

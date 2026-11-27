@@ -24,6 +24,8 @@ export interface Guest {
   pinned: boolean;
   /** ID from the source system (e.g. Joy's guest ID) — used to match on re-import. */
   extId?: string;
+  /** Other spellings of this guest's name in other lists (e.g. 陳大文 / David Chen / "Chen Da Wen"). */
+  aliases?: string[];
   /** Events this guest is attending, from the import (e.g. "Rehearsal Dinner"). */
   events?: string[];
   /** What each imported list said about this guest, keyed by the list's label. */
@@ -67,7 +69,11 @@ export interface Table {
   shape: TableShape;
   /** Number/label used by venue staff, e.g. "Table 7". */
   label: string;
-  /** Display name, e.g. "Peony". Falls back to label. */
+  /** Chinese display name, e.g. "牡丹". */
+  nameZh?: string;
+  /** English display name, e.g. "Peony". */
+  nameEn?: string;
+  /** Legacy combined name ("牡丹 Peony"); split into nameZh/nameEn on load. */
   name?: string;
   x: number;
   y: number;
@@ -158,7 +164,11 @@ export interface Settings {
   colorBy: 'side' | 'meal' | 'group';
   /** Custom colours per tag (lower-case tag → hex). */
   tagColors?: Record<string, string>;
+  /** Which table names to show: Chinese, English, or both. */
+  tableLang?: TableLang;
 }
+
+export type TableLang = 'zh' | 'en' | 'both';
 
 /** A venue floor plan (image or PDF page) shown under the layout for tracing and checking. */
 export interface RefLayer {

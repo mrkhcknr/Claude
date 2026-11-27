@@ -14,7 +14,7 @@ import { TagManager } from './TagManager';
 import { AutoSeatDialog, ImportDialog, OpenFileDialog, SettingsDialog } from './Dialogs';
 import { BrandMark, ConfirmHost, Icon, Menu, MenuItem } from './ui';
 import { backupJson, fileBase, saveFile, seatingChartHtml } from './exporters';
-import { tableName } from './store';
+import { setTableLang, tableName } from './store';
 
 export function App() {
   const project = useStore((s) => s.project);
@@ -154,6 +154,13 @@ export function App() {
           </button>
         </nav>
         <span className="spacer" />
+        <nav className="seg lang-seg" aria-label="Table name language" title="Table names: Chinese, English, or both">
+          {(['zh', 'en', 'both'] as const).map((l) => (
+            <button key={l} lang={l === 'en' ? 'en' : 'zh'} aria-pressed={(project.settings.tableLang ?? 'both') === l} onClick={() => setTableLang(l)}>
+              {l === 'zh' ? '中' : l === 'en' ? 'EN' : '中+EN'}
+            </button>
+          ))}
+        </nav>
         <button className="icon-btn" onClick={undo} disabled={!past} title="Undo (Ctrl+Z)" aria-label="Undo">
           <Icon name="undo" />
         </button>

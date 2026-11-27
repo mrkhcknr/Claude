@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { produce, type Draft } from 'immer';
-import type { Guest, Id, Project, RelationKind, RoomElement, Selection, Table, TableShape, Tool, ZoneKind } from './types';
-import { uid } from './util';
+import type { Guest, Id, Project, RelationKind, RoomElement, Selection, Table, TableLang, TableShape, Tool, ZoneKind } from './types';
+import { splitFlowerName, uid } from './util';
 import { packSeats } from './geometry';
 import { ask } from './ui';
 
@@ -16,6 +16,7 @@ export const defaultSettings = (): Project['settings'] => ({
   partner2: 'Partner 2',
   showSeatNames: true,
   colorBy: 'side',
+  tableLang: 'both',
 });
 
 export const emptyProject = (): Project => ({
@@ -74,7 +75,7 @@ export function migrate(p: Partial<Project>): Project {
     settings: { ...base.settings, ...(p.settings ?? {}) },
     guests: (p.guests ?? []).map((g) => ({ ...blankGuest(), ...g })),
     relations: p.relations ?? [],
-    tables: (p.tables ?? []).map((t) => ({ ...tableDefaults(), ...t })),
+    tables: (p.tables ?? []).map((t) => splitTableName({ ...tableDefaults(), ...t })),
     elements: p.elements ?? [],
     refs: p.refs ?? [],
     seating: p.seating ?? {},
@@ -408,7 +409,35 @@ export function nextTableLabel(p: Project, offset = 0) {
   return `Table ${max + 1 + offset}`;
 }
 
-export const tableName = (t: Pick<Table, 'label' | 'name'>) => t.name?.trim() || t.label;
+/** Move a legacy combined name ("火鶴 Anthurium") into separate Chinese and English fields. */
+export function splitTableName<T extends Pick<Table, 'name' | 'nameZh' | 'nameEn'>>(t: T): T {
+  if (t.name === undefined) return t;
+  const { name, ...rest } = t;
+  if (rest.nameZh !== undefined || rest.nameEn !== undefined || !name?.trim()) return rest as T;
+  const [a, b] = splitFlowerName(name);
+  const zh = /[\u3400-\u9fff]/.test(a) ? a : '';
+  return { ...rest, nameZh: zh, nameEn: zh ? b : name.trim() } as T;
+}
+
+type Named = Pick<Table, 'label' | 'nameZh' | 'nameEn'>;
+const curLang = (): TableLang => get().project.settings.tableLang ?? 'both';
+
+/** A table's name in the chosen language (falling back to the other one, then the number). */
+export function tableName(t: Named, lang: TableLang = curLang()) {
+  const zh = t.nameZh?.trim() ?? '',
+    en = t.nameEn?.trim() ?? '';
+  if (lang === 'zh') return zh || en || t.label;
+  if (lang === 'en') return en || zh || t.label;
+  return [zh, en].filter(Boolean).join(' ') || t.label;
+}
+
+export const hasTableName = (t: Named) => !!(t.nameZh?.trim() || t.nameEn?.trim());
+
+export function setTableLang(lang: TableLang) {
+  update((d) => {
+    d.settings.tableLang = lang;
+  });
+}
 
 import venueFlowers from './venueFlowers.json';
 
@@ -425,12 +454,17 @@ export function nameTablesAfterFlowers(ids?: Id[]) {
   const { project } = get();
   const num = (t: Table) => +(/\d+/.exec(t.label)?.[0] ?? 999);
   const targets = project.tables.filter((t) => !ids || ids.includes(t.id)).sort((a, b) => num(a) - num(b));
-  const used = new Set(project.tables.filter((t) => !targets.includes(t)).map((t) => t.name).filter(Boolean));
+  const used = new Set(project.tables.filter((t) => !targets.includes(t)).map((t) => tableName(t, 'both')));
   const pool = FLOWERS.filter((f) => !used.has(f));
   update((d) => {
     targets.forEach((t, i) => {
       const dt = d.tables.find((x) => x.id === t.id);
-      if (dt) dt.name = pool[i % pool.length] + (i >= pool.length ? ` ${Math.floor(i / pool.length) + 1}` : '');
+      if (!dt) return;
+      const n = splitTableName<Pick<Table, 'name' | 'nameZh' | 'nameEn'>>({ name: pool[i % pool.length] });
+      const suffix = i >= pool.length ? ` ${Math.floor(i / pool.length) + 1}` : '';
+      dt.nameZh = n.nameZh ? n.nameZh + suffix : '';
+      dt.nameEn = n.nameEn ? n.nameEn + suffix : '';
+      delete dt.name;
     });
   });
   toast(`Named ${targets.length} tables after flowers`, true);

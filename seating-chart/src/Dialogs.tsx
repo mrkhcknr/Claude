@@ -540,7 +540,7 @@ export function OpenFileDialog({ open, onClose }: { open: boolean; onClose: () =
               </button>
             )}
           </div>
-          {project.tables.length > 0 && <span className="muted">Your current tables and room ({project.tables.map(tableName).slice(0, 3).join(', ')}…) will be replaced. Undo is available.</span>}
+          {project.tables.length > 0 && <span className="muted">Your current tables and room ({project.tables.map((t) => tableName(t)).slice(0, 3).join(', ')}…) will be replaced. Undo is available.</span>}
         </>
       )}
     </Dialog>

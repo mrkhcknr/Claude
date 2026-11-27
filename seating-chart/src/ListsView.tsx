@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Guest } from './types';
-import { setSelection, tableName, updateGuests, useStore } from './store';
+import { hasTableName, setSelection, tableName, updateGuests, useStore } from './store';
 import { guestMatcher, useFilters, activeCount, clearFilters } from './filters';
 import { backupJson, catererCsv, fileBase, guestListCsv, layoutJson, mealSummary, planPng, planSvg, saveFile, seatingChartHtml, tablesCsv } from './exporters';
 import { lastName } from './util';
@@ -64,7 +64,7 @@ function ByTable({ analysis }: { analysis: Analysis }) {
             <section key={t.id} className="tcard">
               <header>
                 <h3>{tableName(t)}</h3>
-                {t.name && <span className="label">{t.label}</span>}
+                {hasTableName(t) && <span className="label">{t.label}</span>}
                 <span className="spacer" style={{ flex: 1 }} />
                 <span className="badge num">
                   {gs.length}/{t.seats}
@@ -202,7 +202,7 @@ function Meals() {
           {rows.map((r) => (
             <tr key={r.t.id}>
               <td>
-                {tableName(r.t)} {r.t.name && <span className="muted">· {r.t.label}</span>}
+                {tableName(r.t)} {hasTableName(r.t) && <span className="muted">· {r.t.label}</span>}
               </td>
               <td>{r.gs.length}</td>
               {r.counts.map((c, i) => (

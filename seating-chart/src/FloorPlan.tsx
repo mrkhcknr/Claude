@@ -13,6 +13,7 @@ import {
   setSelection,
   setTool,
   TABLE_PRESETS,
+  hasTableName,
   tableName,
   update,
   updateTables,
@@ -28,7 +29,7 @@ import { useDrag, startGuestDrag } from './dnd';
 import { useFilters, guestMatcher, allTags } from './filters';
 import { tagColor as tagColorFor } from './tags';
 import { buildAffinity, groupTags, type Analysis } from './scoring';
-import { clamp, firstName, fmtLen, hueColor, initials, shortLatin, snapTo, splitFlowerName, uid } from './util';
+import { clamp, firstName, fmtLen, hueColor, initials, shortLatin, snapTo, uid } from './util';
 import { Icon, Menu, MenuItem, NumField } from './ui';
 
 /** Loose view over tables and room elements for handle maths. */
@@ -665,10 +666,13 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
                   {sel && <TableShapeEl t={t} k={k} outline />}
                 </g>
                 <g transform={`translate(${t.x} ${t.y}) rotate(${labelRot})`} pointerEvents="none">
-                  {t.name?.trim() && t.name.trim() !== t.label ? (
+                  {hasTableName(t) ? (
                     (() => {
-                      const [full, latin] = splitFlowerName(label);
-                      const main = full.replace(/（.*?）|\(.*?\)/g, '').trim() || full;
+                      const lang = project.settings.tableLang ?? 'both';
+                      const zh = (t.nameZh ?? '').replace(/（.*?）|\(.*?\)/g, '').trim(),
+                        en = (t.nameEn ?? '').replace(/\(.*?\)/g, '').trim();
+                      const main = lang === 'en' ? en || zh : zh || en;
+                      const latin = lang === 'both' && zh && en ? en : '';
                       // fit text to the table's length; add detail as you zoom in
                       const room = (long || t.shape === 'round' || t.shape === 'square' ? t.w : t.w) * 0.88;
                       const em = (str: string) => [...str].reduce((a, ch) => a + (/[\u3000-\u9fff\uff00-\uffef]/.test(ch) ? 1 : 0.56), 0);
@@ -701,8 +705,8 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
                       {label}
                     </text>
                   )}
-                  {camera.scale > 6 && !t.name?.trim() && (
-                    <text className="tcount" textAnchor="middle" y={nameSize * (t.name ? (splitFlowerName(t.name)[1] ? 2.4 : 1.95) : 1.15)} style={{ fontSize: Math.max(0.5, 8.5 * k) }}>
+                  {camera.scale > 6 && !hasTableName(t) && (
+                    <text className="tcount" textAnchor="middle" y={nameSize * 1.15} style={{ fontSize: Math.max(0.5, 8.5 * k) }}>
                       {filled}/{t.seats}
                     </text>
                   )}

@@ -8,7 +8,6 @@
    "id": "t1",
    "shape": "rect",
    "label": "Table 3",
-   "name": "彩虹鳥蕉 Heliconia",
    "x": 51.35,
    "y": 76.36,
    "rotation": 90,
@@ -18,13 +17,14 @@
    "ends": false,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "彩虹鳥蕉",
+   "nameEn": "Heliconia"
   },
   {
    "id": "t2",
    "shape": "rect",
    "label": "Table 4",
-   "name": "白花天堂鳥 Strelitzia nicolai",
    "x": 51.35,
    "y": 85.36,
    "rotation": 90,
@@ -34,13 +34,14 @@
    "ends": false,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "白花天堂鳥",
+   "nameEn": "Strelitzia nicolai"
   },
   {
    "id": "t3",
    "shape": "rect",
    "label": "Table 5",
-   "name": "垂鳥蕉 Heliconia rostrata",
    "x": 51.35,
    "y": 94.36,
    "rotation": 90,
@@ -50,13 +51,14 @@
    "ends": false,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "垂鳥蕉",
+   "nameEn": "Heliconia rostrata"
   },
   {
    "id": "t4",
    "shape": "rect",
    "label": "Table 6",
-   "name": "山蘇 Asplenium nidus Linn",
    "x": 51.35,
    "y": 103.36,
    "rotation": 90,
@@ -66,13 +68,14 @@
    "ends": false,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "山蘇",
+   "nameEn": "Asplenium nidus Linn"
   },
   {
    "id": "t5",
    "shape": "rect",
    "label": "Table 7",
-   "name": "萬代蘭 Vanda coerulea",
    "x": 51.35,
    "y": 112.36,
    "rotation": 90,
@@ -82,13 +85,14 @@
    "ends": false,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "萬代蘭",
+   "nameEn": "Vanda coerulea"
   },
   {
    "id": "t6",
    "shape": "rect",
    "label": "Table 8",
-   "name": "文心蘭 Oncidium，Dancing-Doll Orchid",
    "x": 63.55,
    "y": 76.36,
    "rotation": 90,
@@ -98,13 +102,14 @@
    "ends": false,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "文心蘭",
+   "nameEn": "Oncidium，Dancing-Doll Orchid"
   },
   {
    "id": "t7",
    "shape": "rect",
    "label": "Table 9",
-   "name": "東亞蘭 Cymbidium",
    "x": 63.55,
    "y": 85.36,
    "rotation": 90,
@@ -114,13 +119,14 @@
    "ends": false,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "東亞蘭",
+   "nameEn": "Cymbidium"
   },
   {
    "id": "t8",
    "shape": "rect",
    "label": "Table 10",
-   "name": "石斛蘭 Dendrobium nobile",
    "x": 63.55,
    "y": 94.36,
    "rotation": 90,
@@ -130,13 +136,14 @@
    "ends": false,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "石斛蘭",
+   "nameEn": "Dendrobium nobile"
   },
   {
    "id": "t9",
    "shape": "rect",
    "label": "Table 11",
-   "name": "蝴蝶蘭 Phalaenopsis sp",
    "x": 63.55,
    "y": 103.36,
    "rotation": 90,
@@ -146,13 +153,14 @@
    "ends": false,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "蝴蝶蘭",
+   "nameEn": "Phalaenopsis sp"
   },
   {
    "id": "t10",
    "shape": "rect",
    "label": "Table 12",
-   "name": "拖鞋蘭（又稱仙履蘭、兜蘭） Paphiopedilum",
    "x": 63.55,
    "y": 112.36,
    "rotation": 90,
@@ -162,13 +170,14 @@
    "ends": false,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "拖鞋蘭（又稱仙履蘭、兜蘭）",
+   "nameEn": "Paphiopedilum"
   },
   {
    "id": "t11",
    "shape": "rect",
    "label": "Table 13",
-   "name": "粗肋草 Aglaonema",
    "x": 80.9,
    "y": 71.49,
    "rotation": 90,
@@ -178,13 +187,14 @@
    "ends": false,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "粗肋草",
+   "nameEn": "Aglaonema"
   },
   {
    "id": "t12",
    "shape": "rect",
    "label": "Table 14",
-   "name": "彩葉芋 Caladium bicolor",
    "x": 80.9,
    "y": 80.49,
    "rotation": 90,
@@ -194,13 +204,14 @@
    "ends": false,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "彩葉芋",
+   "nameEn": "Caladium bicolor"
   },
   {
    "id": "t13",
    "shape": "rect",
    "label": "Table 15",
-   "name": "窗簾蕨 Nephrolepis pendula (Raddi) J. Sm",
    "x": 80.9,
    "y": 89.49,
    "rotation": 90,
@@ -210,13 +221,14 @@
    "ends": false,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "窗簾蕨",
+   "nameEn": "Nephrolepis pendula (Raddi) J. Sm"
   },
   {
    "id": "t14",
    "shape": "rect",
    "label": "Table 16",
-   "name": "魚尾山蘇 Asplenium 'Crissi",
    "x": 80.9,
    "y": 98.49,
    "rotation": 90,
@@ -226,13 +238,14 @@
    "ends": false,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "魚尾山蘇",
+   "nameEn": "Asplenium 'Crissi"
   },
   {
    "id": "t15",
    "shape": "rect",
    "label": "Table 17",
-   "name": "兔腳蕨 Davallia mariesii",
    "x": 80.9,
    "y": 107.49,
    "rotation": 90,
@@ -242,13 +255,14 @@
    "ends": false,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "兔腳蕨",
+   "nameEn": "Davallia mariesii"
   },
   {
    "id": "t21",
    "shape": "rect",
    "label": "Head Table 1",
-   "name": "火鶴 Anthurium",
    "x": 92.3,
    "y": 80.49,
    "rotation": 90,
@@ -258,13 +272,14 @@
    "ends": false,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "火鶴",
+   "nameEn": "Anthurium"
   },
   {
    "id": "t22",
    "shape": "rect",
    "label": "Head Table 2",
-   "name": "天堂鳥 Strelitzia reginae",
    "x": 92.3,
    "y": 98.49,
    "rotation": 90,
@@ -274,13 +289,14 @@
    "ends": false,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "天堂鳥",
+   "nameEn": "Strelitzia reginae"
   },
   {
    "id": "t16",
    "shape": "rect",
    "label": "Table 18",
-   "name": "魚尾蕨 Microsorum punctatum",
    "x": 21.73,
    "y": 43.47,
    "rotation": 90,
@@ -290,13 +306,14 @@
    "ends": true,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "魚尾蕨",
+   "nameEn": "Microsorum punctatum"
   },
   {
    "id": "t17",
    "shape": "rect",
    "label": "Table 19",
-   "name": "芒萁 Dicranopteris linearis (Burm. f.) Underw.",
    "x": 33.42,
    "y": 43.47,
    "rotation": 90,
@@ -306,13 +323,14 @@
    "ends": true,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "芒萁",
+   "nameEn": "Dicranopteris linearis (Burm. f.) Underw."
   },
   {
    "id": "t18",
    "shape": "rect",
    "label": "Table 20",
-   "name": "月桃葉 Alpinia zerumbet",
    "x": 45.12,
    "y": 43.47,
    "rotation": 90,
@@ -322,13 +340,14 @@
    "ends": true,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "月桃葉",
+   "nameEn": "Alpinia zerumbet"
   },
   {
    "id": "t19",
    "shape": "rect",
    "label": "Table 21",
-   "name": "高山杜鵑 Rhododendron lapponicum",
    "x": 56.82,
    "y": 43.47,
    "rotation": 90,
@@ -338,13 +357,14 @@
    "ends": true,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "高山杜鵑",
+   "nameEn": "Rhododendron lapponicum"
   },
   {
    "id": "t20",
    "shape": "rect",
    "label": "Table 22",
-   "name": "蔓梅擬 Celastrus orbiculatus",
    "x": 68.53,
    "y": 43.47,
    "rotation": 90,
@@ -354,7 +374,9 @@
    "ends": true,
    "locked": false,
    "reservedFor": "",
-   "color": ""
+   "color": "",
+   "nameZh": "蔓梅擬",
+   "nameEn": "Celastrus orbiculatus"
   }
  ],
  "elements": [

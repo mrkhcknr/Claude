@@ -1,6 +1,6 @@
 import Papa from 'papaparse';
 import type { Guest, Rsvp, Side } from './types';
-import { lastName, likelySame, matchKey, normName, uid } from './util';
+import { familyName, guestKeys, joinName, likelySame, nameKeys, normName, uid } from './util';
 import { scrubText, stripPII } from './privacy';
 
 export type Field =
@@ -170,14 +170,14 @@ export function rowsToGuests(rows: Record<string, string>[], o: ImportOptions): 
     let name = get(r, 'name');
     const first = get(r, 'first'),
       last = get(r, 'last');
-    if (!name) name = [first, last].filter(Boolean).join(' ');
+    if (!name) name = joinName(first, last);
     const suffix = get(r, 'suffix');
     if (name && suffix) name += (/^(jr|sr)\.?$/i.test(suffix) ? ', ' : ' ') + suffix;
     if (!name) continue;
 
     let partyKey = '';
     if (o.households === 'column') partyKey = keyFor(get(r, 'party'));
-    else if (o.households === 'lastName') partyKey = keyFor(lastName(name));
+    else if (o.households === 'lastName') partyKey = keyFor(familyName(name));
 
     const names = o.splitCouples ? splitCouple(name) : [name];
     if (names.length > 1 && !partyKey) partyKey = uid();
@@ -300,11 +300,12 @@ export interface MergePlan {
 
 /** Match incoming rows to existing guests by name so re-importing an updated RSVP list keeps seating. */
 export function planMerge(existing: Guest[], incoming: ImportRow[]): MergePlan {
-  const byName = new Map(existing.map((g) => [matchKey(g.name), g]));
+  const byName = new Map<string, Guest>();
+  for (const g of existing) for (const k of guestKeys(g).exact) if (!byName.has(k)) byName.set(k, g);
   const byExt = new Map(existing.filter((g) => g.extId).map((g) => [g.extId!, g]));
   const plan: MergePlan = { add: [], update: [], possibleDupes: [] };
   for (const row of incoming) {
-    const hit = (row.guest.extId && byExt.get(row.guest.extId)) || byName.get(matchKey(row.guest.name));
+    const hit = (row.guest.extId && byExt.get(row.guest.extId)) || nameKeys(row.guest.name).exact.map((k) => byName.get(k)).find(Boolean);
     if (hit && !/^guest of /i.test(row.guest.name)) {
       plan.update.push({ existing: hit, incoming: row.guest, table: row.table });
       continue;

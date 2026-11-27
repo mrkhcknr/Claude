@@ -41,7 +41,7 @@ export function guestMatcher(p: Project, f: Filters, tableOf: Map<Id, Id>, disc?
   }
   return (g) => {
     if (q) {
-      const hay = normName(`${g.name} ${g.group} ${g.meal} ${g.dietary} ${g.notes}`);
+      const hay = normName(`${g.name} ${(g.aliases ?? []).join(' ')} ${g.group} ${g.meal} ${g.dietary} ${g.notes}`);
       if (!q.split(' ').every((w) => hay.includes(w))) return false;
     }
     if (f.rsvp === 'attending' ? g.rsvp === 'no' : f.rsvp && g.rsvp !== f.rsvp) return false;

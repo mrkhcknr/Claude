@@ -7,6 +7,7 @@ import {
   duplicateSelection,
   focusGuest,
   FLOWERS,
+  splitTableName,
   locate,
   makeParty,
   nameTablesAfterFlowers,
@@ -34,6 +35,14 @@ import { RefInspector } from './RefInspector';
 import { discLabel, dismiss, useListValue } from './discrepancies';
 import { fmtLen, uid } from './util';
 import { Icon, NumField, TextField } from './ui';
+
+/** [中文, English] for every flower name, for the two name pickers. */
+const FLOWER_PAIRS: [string, string][] = FLOWERS.map((f) => {
+  const n = splitTableName<{ name?: string; nameZh?: string; nameEn?: string }>({ name: f });
+  return [n.nameZh ?? '', n.nameEn ?? ''];
+});
+const FLOWER_EN = new Map(FLOWER_PAIRS.filter(([z, e]) => z && e));
+const FLOWER_ZH = new Map(FLOWER_PAIRS.filter(([z, e]) => z && e).map(([z, e]) => [e, z]));
 
 export function Inspector({ analysis, onAutoSeat, onSettings }: { analysis: Analysis; onAutoSeat: (tab?: 'rules' | 'claude') => void; onSettings: () => void }) {
   const selection = useStore((s) => s.selection);
@@ -223,13 +232,33 @@ function TableInspector({ t, analysis }: { t: Table; analysis: Analysis }) {
           </span>
         </div>
         <h2 className="insp-title">
-          <TextField className="" value={t.name ?? ''} placeholder={t.label || 'Name this table'} onCommit={(v) => set({ name: v })} list="flower-list" />
+          <TextField className="" value={tableName(t)} placeholder={t.label || 'Name this table'} onCommit={(v) => set(splitTableName({ name: v }))} list="flower-list" />
         </h2>
         <datalist id="flower-list">
           {FLOWERS.map((f) => (
             <option key={f} value={f} />
           ))}
         </datalist>
+        <datalist id="flower-zh">
+          {FLOWER_PAIRS.filter(([zh]) => zh).map(([zh, en]) => (
+            <option key={zh} value={zh} label={en} />
+          ))}
+        </datalist>
+        <datalist id="flower-en">
+          {FLOWER_PAIRS.filter(([, en]) => en).map(([zh, en]) => (
+            <option key={en} value={en} label={zh} />
+          ))}
+        </datalist>
+        <div className="grid2">
+          <label className="field">
+            <span>Name · 中文</span>
+            <TextField value={t.nameZh ?? ''} placeholder="中文名" list="flower-zh" onCommit={(v) => set({ nameZh: v, ...(!t.nameEn?.trim() && FLOWER_EN.has(v.trim()) ? { nameEn: FLOWER_EN.get(v.trim()) } : {}) })} />
+          </label>
+          <label className="field">
+            <span>Name · English</span>
+            <TextField value={t.nameEn ?? ''} placeholder="English name" list="flower-en" onCommit={(v) => set({ nameEn: v, ...(!t.nameZh?.trim() && FLOWER_ZH.has(v.trim()) ? { nameZh: FLOWER_ZH.get(v.trim()) } : {}) })} />
+          </label>
+        </div>
         <div className="grid2">
           <label className="field">
             <span>Number / label</span>
@@ -840,6 +869,15 @@ function GuestInspector({ g, analysis }: { g: Guest; analysis: Analysis }) {
         <button className="btn ghost sm" onClick={() => setView('network')}>
           <Icon name="graph" size="sm" /> Edit ties in the social graph
         </button>
+      </div>
+      <div className="section">
+        <h3>Also known as</h3>
+        <TextField
+          value={(g.aliases ?? []).join(', ')}
+          placeholder="Other spellings, e.g. 陳大文, David Chen"
+          onCommit={(v) => updateGuests([g.id], { aliases: [...new Set(v.split(/[,，、;]/).map((x) => x.trim()).filter((x) => x && x !== g.name))] })}
+        />
+        <p className="muted small">Used to match this guest in other lists. Chinese names match with or without a space and in either order.</p>
       </div>
       <div className="section">
         <h3>Notes</h3>

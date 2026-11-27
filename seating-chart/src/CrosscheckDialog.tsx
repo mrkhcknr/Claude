@@ -4,7 +4,7 @@ import { toast, update, useStore } from './store';
 import { parseCsv, parsePaste, type Parsed } from './importer';
 import { CFIELDS, buildRows, detectCrossMapping, diffsFor, matchRows, rsvpWord, type CField, type CrossRow } from './crosscheck';
 import { Dialog, Icon } from './ui';
-import { uid } from './util';
+import { knownAs, uid } from './util';
 
 type Step = 'source' | 'map' | 'review';
 
@@ -72,6 +72,8 @@ export function CrosscheckDialog({ open, onClose }: { open: boolean; onClose: ()
       for (const r of matched) {
         const g = p.guests.find((x) => x.id === r.guestId);
         if (!g) continue;
+        // remember how this list spells the name, so the next import matches it outright
+        if (r.fileName && !knownAs(g, r.fileName)) g.aliases = [...(g.aliases ?? []), r.fileName];
         g.sources = { ...(g.sources ?? {}), [label]: clean({ rsvp: r.rsvp ?? undefined, meal: r.meal || undefined, dietary: r.dietary || undefined }) };
       }
       for (const { r, d, key } of diffs) {
