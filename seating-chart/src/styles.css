@@ -1300,7 +1300,8 @@ body.is-dragging .unseat-zone {
   font-family: var(--f-display);
   font-size: 17px;
   fill: var(--ink-2);
-  pointer-events: none;
+  cursor: grab;
+  touch-action: none;
   paint-order: stroke;
   stroke: var(--canvas);
   stroke-width: 4px;

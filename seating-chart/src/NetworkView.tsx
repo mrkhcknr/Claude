@@ -208,7 +208,11 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
       const prev = old.get(g.id) ?? memo.get(g.id);
       const a = i * 2.39996,
         r = 12 * Math.sqrt(i + 1);
-      nodes.set(g.id, { id: g.id, guest: g, x: prev?.x ?? W / 2 + r * Math.cos(a), y: prev?.y ?? H / 2 + r * Math.sin(a), vx: 0, vy: 0 });
+      const x = prev?.x ?? W / 2 + r * Math.cos(a),
+        y = prev?.y ?? H / 2 + r * Math.sin(a);
+      // guests in a group the user moved stay where they were put
+      const keep = pinned.current.has(g.id);
+      nodes.set(g.id, { id: g.id, guest: g, x, y, vx: 0, vy: 0, fx: keep ? x : undefined, fy: keep ? y : undefined });
     });
     const links: L[] = [];
     // one hub per home group pulls its members together; other (specific) tags pull weakly, so related bubbles sit near each other
@@ -424,11 +428,22 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
   }
 
   // ---------- pointer interactions ----------
-  const gest = useRef<{ t: 'pan'; sx: number; sy: number; c: typeof cam } | { t: 'node'; n: N; sx: number; sy: number; moved: boolean; shift: boolean } | { t: 'lasso' } | null>(null);
+  const gest = useRef<{ t: 'pan'; sx: number; sy: number; c: typeof cam } | { t: 'node'; n: N; sx: number; sy: number; moved: boolean; shift: boolean } | { t: 'lasso' } | { t: 'group'; nodes: N[]; start: { x: number; y: number }[]; sx: number; sy: number; moved: boolean; key?: string } | null>(null);
 
   function nodeAt(cx: number, cy: number): N | undefined {
     const el = document.elementFromPoint(cx, cy)?.closest('[data-node]') as SVGElement | null;
     return el ? byId.get(el.dataset.node!) : undefined;
+  }
+
+  /** Guests the user has dragged as a group; they stay put until "shake" releases them. */
+  const pinned = useRef(new Set<string>());
+  function startGroupDrag(nodes: N[], e: React.PointerEvent, key?: string) {
+    if (!nodes.length) return;
+    gest.current = { t: 'group', nodes, start: nodes.map((n) => ({ x: n.x!, y: n.y! })), sx: e.clientX, sy: e.clientY, moved: false, key };
+    for (const n of nodes) {
+      n.fx = n.x;
+      n.fy = n.y;
+    }
   }
 
   function onDown(e: React.PointerEvent) {
@@ -443,6 +458,16 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
       setLasso([p]);
       return;
     }
+    // drag a whole group: its bubble (hand tool) or its name (any tool)
+    const hullEl = (e.target as Element).closest('[data-hull]') as SVGElement | null;
+    const labelEl = (e.target as Element).closest('[data-hull-label]') as SVGElement | null;
+    const groupKey = labelEl?.dataset.hullLabel ?? (brush === 'move' && !nEl ? hullEl?.dataset.hull : undefined);
+    if (groupKey && e.button === 0) {
+      const members = gnodes.filter((n) => homes.home.get(n.id) === groupKey);
+      const hub = byId.get('hub:' + groupKey);
+      startGroupDrag([...members, ...(hub ? [hub] : [])], e, groupKey);
+      return;
+    }
     if (eEl && !nEl) {
       const [a, b] = eEl.dataset.edge!.split('|');
       if (brush === 'erase') setRelation(a, b, null);
@@ -452,6 +477,11 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
     }
     if (nEl && e.button === 0) {
       const n = byId.get(nEl.dataset.node!)!;
+      // hand tool on a guest who's part of a multi-selection: move the whole selection
+      if (brush === 'move' && selected.size > 1 && selected.has(n.id) && !(e.shiftKey || e.metaKey || e.ctrlKey)) {
+        startGroupDrag(gnodes.filter((x) => selected.has(x.id)), e);
+        return;
+      }
       gest.current = { t: 'node', n, sx: e.clientX, sy: e.clientY, moved: false, shift: e.shiftKey || e.metaKey || e.ctrlKey };
       if (brush === 'move') {
         n.fx = n.x;
@@ -469,6 +499,17 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
     const p = toGraph(e.clientX, e.clientY);
     if (g.t === 'pan') (userMoved.current = true), setCam({ ...g.c, x: g.c.x + e.clientX - g.sx, y: g.c.y + e.clientY - g.sy });
     else if (g.t === 'lasso') setLasso((l) => (l ? [...l, p] : l));
+    else if (g.t === 'group') {
+      if (!g.moved && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) < 4) return;
+      g.moved = true;
+      const dx = (e.clientX - g.sx) / cam.k,
+        dy = (e.clientY - g.sy) / cam.k;
+      g.nodes.forEach((n, i) => {
+        n.fx = g.start[i].x + dx;
+        n.fy = g.start[i].y + dy;
+      });
+      sim.current?.alphaTarget(0.15).restart();
+    }
     else if (g.t === 'node') {
       if (!g.moved && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) < 4) return;
       g.moved = true;
@@ -489,6 +530,22 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
     const g = gest.current;
     gest.current = null;
     if (!g) return;
+    if (g.t === 'group') {
+      sim.current?.alphaTarget(0);
+      if (!g.moved) {
+        // a tap on a group's bubble or name selects everyone in it
+        for (const n of g.nodes) if (n.hub) (n.fx = null), (n.fy = null);
+        const ids = g.nodes.filter((n) => n.guest).map((n) => n.id);
+        if (ids.length) setSelection({ type: 'guest', ids });
+        return;
+      }
+      // moved groups stay where they were dropped (the shake button releases them)
+      for (const n of g.nodes) {
+        pinned.current.add(n.id);
+        if (n.guest) memo.set(n.id, { x: n.fx!, y: n.fy! });
+      }
+      return;
+    }
     if (g.t === 'lasso') {
       const poly = lasso ?? [];
       setLasso(null);
@@ -577,12 +634,12 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
         <g transform={`translate(${cam.x} ${cam.y}) scale(${cam.k})`}>
           {hulls.map((h) => (
             <g key={h.tag} className={`hull ${dropGroup && dropGroup.toLowerCase() === h.tag ? 'drop' : ''}`}>
-              <path d={hullPath(h.pts)} fill={h.color} stroke={h.color} strokeWidth={44} />
+              <path d={hullPath(h.pts)} fill={h.color} stroke={h.color} strokeWidth={44} data-hull={h.tag} style={{ cursor: brush === 'move' ? 'grab' : undefined }} />
             </g>
           ))}
           {hulls.map((h) =>
             h.pts.length > 1 ? (
-              <text key={h.tag} className="hull-label" style={{ fontSize: labelFs }} x={h.pts.reduce((a, p) => a + p.x, 0) / h.pts.length} y={labelY.get(h.tag)} textAnchor="middle">
+              <text key={h.tag} className="hull-label" data-hull-label={h.tag} style={{ fontSize: labelFs }} x={h.pts.reduce((a, p) => a + p.x, 0) / h.pts.length} y={labelY.get(h.tag)} textAnchor="middle">
                 {h.label}
               </text>
             ) : null,
@@ -764,7 +821,18 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
         <button className="icon-btn" title="Zoom in" onClick={() => (userMoved.current = true) && setCam((c) => ({ ...c, k: clamp(c.k * 1.25, 0.25, 4) }))}>
           <Icon name="zoomIn" />
         </button>
-        <button className="icon-btn" title="Shake the layout" onClick={() => sim.current?.alpha(0.8).restart()}>
+        <button
+          className="icon-btn"
+          title="Shake the layout (also releases groups you've moved)"
+          onClick={() => {
+            for (const id of pinned.current) {
+              const n = nodesRef.current.get(id);
+              if (n) (n.fx = null), (n.fy = null);
+            }
+            pinned.current.clear();
+            sim.current?.alpha(0.8).restart();
+          }}
+        >
           <Icon name="sparkle" />
         </button>
       </div>
