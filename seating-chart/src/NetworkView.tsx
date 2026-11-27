@@ -6,6 +6,7 @@ import { activeCount, allTags, clearFilters, guestMatcher, setFilters, useFilter
 import { groupTags, type Analysis } from './scoring';
 import { BONDS, BOND_HELP, BOND_LABEL, SEAT_LABEL, SEAT_RULES, describeTie, effectiveSeat, isPositive } from './relations';
 import { clamp, firstName, hueColor } from './util';
+import { suggestIntroductions } from './introductions';
 import { Icon } from './ui';
 import { tagColor as tagColorFor } from './tags';
 import { SearchBox, FilterSheet } from './GuestPanel';
@@ -25,8 +26,8 @@ interface L extends SimulationLinkDatum<N> {
   rid?: string;
 }
 
-const LINK_DIST: Record<L['kind'], number> = { hub2: 140, hub: 46, party: 22, partner: 20, family: 30, friend: 36, coworker: 48, acquaintance: 70, tension: 200 };
-const LINK_STR: Record<L['kind'], number> = { hub2: 0.02, hub: 0.25, party: 1, partner: 1, family: 0.9, friend: 0.8, coworker: 0.6, acquaintance: 0.35, tension: 0.12 };
+const LINK_DIST: Record<L['kind'], number> = { hub2: 140, hub: 46, party: 22, partner: 20, family: 30, friend: 36, introduce: 60, tension: 200 };
+const LINK_STR: Record<L['kind'], number> = { hub2: 0.02, hub: 0.25, party: 1, partner: 1, family: 0.9, friend: 0.8, introduce: 0.4, tension: 0.12 };
 
 /**
  * Each guest's home group, so bubbles never overlap: the most specific (smallest) tag they have,
@@ -648,6 +649,7 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
         <label className="check" style={{ fontSize: 12 }}>
           <input type="checkbox" checked={includeDeclined} onChange={(e) => setIncludeDeclined(e.target.checked)} /> Include declined
         </label>
+        <IntroSuggestions />
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <span className="label">Groups · drag a guest here</span>
           <button className="btn ghost sm" onClick={() => window.dispatchEvent(new Event('app:tags'))}>
@@ -758,8 +760,8 @@ function SelectionBar({ guests }: { guests: Guest[] }) {
       <button className="btn sm" onClick={() => relateAll(ids, { kind: 'friend' })}>
         Friends
       </button>
-      <button className="btn sm" onClick={() => relateAll(ids, { kind: 'coworker' })}>
-        Coworkers
+      <button className="btn sm" onClick={() => relateAll(ids, { kind: 'introduce' })} title="They haven't met, but you'd like them to">
+        Introduce
       </button>
       <button className="btn sm" onClick={() => relateAll(ids, { seat: 'beside' })}>
         Next to each other
@@ -822,4 +824,40 @@ function padPoly(pts: { x: number; y: number }[], pad: number) {
     const d = Math.hypot(p.x - cx, p.y - cy) || 1;
     return { x: p.x + ((p.x - cx) / d) * pad, y: p.y + ((p.y - cy) / d) * pad };
   });
+}
+
+/** Friends of friends from different circles, offered as Introduce lines. */
+function IntroSuggestions() {
+  const project = useStore((s) => s.project);
+  const [open, setOpen] = useState(false);
+  const list = useMemo(() => (open ? suggestIntroductions(project) : []), [open, project]);
+  const name = (id: string) => project.guests.find((g) => g.id === id)?.name ?? '';
+  return (
+    <div className="intro-box">
+      <button className="btn ghost sm" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <Icon name="sparkle" size="sm" /> Suggest introductions
+      </button>
+      {open && (
+        <div className="intro-list">
+          {list.length ? (
+            list.map((x) => (
+              <div key={x.a + x.b} className="intro-row">
+                <span>
+                  <b>{firstName(name(x.a))}</b> & <b>{firstName(name(x.b))}</b>
+                  <span className="muted"> · both know {x.via.map((v) => firstName(name(v))).join(', ')}</span>
+                </span>
+                <button className="btn sm" onClick={() => setRelation(x.a, x.b, { kind: 'introduce' })}>
+                  Introduce
+                </button>
+              </div>
+            ))
+          ) : (
+            <span className="muted" style={{ fontSize: 12 }}>
+              No suggestions yet. Draw Friend or Family lines: people two steps apart from different circles show up here.
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }

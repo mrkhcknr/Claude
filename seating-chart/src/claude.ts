@@ -108,7 +108,7 @@ TABLES (id | name | seats | area | reservation):
 ${r.tables.join('\n')}
 
 EXISTING TIES (a relationship[+seating rule] (how they know each other) b): ${r.ties.join(', ') || 'none'}
-Relationships: partner (a couple; seated side by side), family, friend, coworker, acquaintance, tension (better at different tables).
+Relationships: partner (a couple; seated side by side), family, friend, introduce (they haven't met but we want them to), tension (better at different tables).
 Optional seating rule on a tie: beside = adjacent chairs; together = same table; apart = never the same table.
 Context = how they know each other or where they work (e.g. "Fire Island", "Google"); contexts also become guest tags.
 

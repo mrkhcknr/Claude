@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { autoSeat, type AutoSeatOptions, type AutoSeatResult } from './autoSeat';
 import { getState, seatAtTable, setRelation, swapGuests, tableName, toast, update, updateTables, useStore } from './store';
-import { SLIDERS, rulesOf, type SeatingRules } from './rules';
+import { SLIDERS, DEFAULT_POINTS, POINT_KINDS, POINT_LABEL, pointsOf, rulesOf, type PointKind, type PointRow, type SeatingRules } from './rules';
+import { happinessOf } from './happiness';
 import { errText, getSample, proposeFromIntent, reviewSeating, type Proposal, type Suggestion } from './claude';
 import { describeTie } from './relations';
 import { allTags } from './filters';
@@ -109,10 +110,15 @@ function SeatTab({ onDone }: { onDone: () => void }) {
               {res.tagMatched} of {res.tagWanted} guests with a tagged table are at one.
             </span>
           )}
+          <span>
+            Happiness: <b className="num">{res.after.toLocaleString()}</b> points
+            {res.after !== res.before && <span className="muted"> (swapping seats added {(res.after - res.before).toLocaleString()})</span>}
+          </span>
+          <LeastHappy seating={res.seating} />
           {res.warnings.map((w, i) => (
             <span key={i}>{w}</span>
           ))}
-          <span>Apply to see it on the plan. The Checks list shows anyone without a tie at their table. Undo is one click.</span>
+          <span>Apply to see it on the plan. Hover a seat to see that guest's points. Undo is one click.</span>
         </div>
       )}
       <div className="row" style={{ justifyContent: 'flex-end' }}>
@@ -146,10 +152,74 @@ function RulesTab() {
           <input type="checkbox" className="switch" checked={R.apartHard} onChange={(e) => set({ apartHard: e.target.checked })} /> "Never same table" is absolute
         </label>
       </div>
+      <PointsTable />
       <p className="muted" style={{ margin: 0, fontSize: 12 }}>
         Rules are saved with the seating chart, so anyone you share it with uses the same ones.
       </p>
     </>
+  );
+}
+
+/** Editable happiness points: relationship × next to / across from / same table. */
+function PointsTable() {
+  const project = useStore((s) => s.project);
+  const R = rulesOf(project.settings);
+  const P = pointsOf(R);
+  const changed = POINT_KINDS.some((k) => JSON.stringify(P[k]) !== JSON.stringify(DEFAULT_POINTS[k]));
+  const set = (k: PointKind, col: keyof PointRow, v: number) =>
+    update((d) => {
+      const r = (d.settings.rules ??= {});
+      r.points = { ...(r.points ?? {}), [k]: { ...P[k], [col]: v } };
+    });
+  return (
+    <div className="field">
+      <span>Happiness points</span>
+      <span className="muted" style={{ fontSize: 12, textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
+        After tags and connections place everyone, auto-seat swaps guests between chairs to raise the total. Each guest earns these points for the people near them; every further
+        person counts a little less (×0.85) so nobody hoards all their friends. Small social groups count more than big ones.
+      </span>
+      <table className="points-table">
+        <thead>
+          <tr>
+            <th />
+            <th>Next to</th>
+            <th>Across from</th>
+            <th>Same table</th>
+          </tr>
+        </thead>
+        <tbody>
+          {POINT_KINDS.map((k) => (
+            <tr key={k}>
+              <th>{POINT_LABEL[k]}</th>
+              {(['next', 'across', 'same'] as const).map((c) => (
+                <td key={c}>
+                  <input className="input num" type="number" step={1} value={P[k][c]} onChange={(e) => set(k, c, +e.target.value || 0)} aria-label={`${POINT_LABEL[k]} ${c}`} />
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div>
+        <button className="btn ghost sm" disabled={!changed} onClick={() => update((d) => d.settings.rules && delete d.settings.rules.points)}>
+          Reset points
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The five guests with the fewest points, so gaps are easy to spot. */
+function LeastHappy({ seating }: { seating: AutoSeatResult['seating'] }) {
+  const project = useStore((s) => s.project);
+  const h = happinessOf(project, seating);
+  const byId = new Map(project.guests.map((g) => [g.id, g]));
+  const low = [...h.byGuest].sort((a, b) => a[1].points - b[1].points).slice(0, 5);
+  if (!low.length) return null;
+  return (
+    <span className="muted" style={{ fontSize: 12.5 }}>
+      Fewest points: {low.map(([g, x]) => `${byId.get(g)?.name} (${Math.round(x.points)})`).join(', ')}. Drawing a Friend or Introduce line for them helps most.
+    </span>
   );
 }
 

@@ -9,8 +9,6 @@ export interface SeatingRules {
   /** Relationship weights */
   family: number;
   friend: number;
-  coworker: number;
-  acquaintance: number;
   tension: number;
   /** Seating-instruction weights (added on top of the relationship) */
   beside: number;
@@ -41,14 +39,40 @@ export interface SeatingRules {
   neighbours: boolean;
   /** Couples (households of two and "Next to" pairs) take two chairs on the same side, next to each other */
   couplesSideBySide: boolean;
+  /** Happiness points by relationship and distance (missing rows use the defaults) */
+  points?: Partial<Record<PointKind, PointRow>>;
 }
+
+export type PointKind = 'partner' | 'family' | 'friend' | 'introduce' | 'tag' | 'tension';
+export interface PointRow {
+  next: number;
+  across: number;
+  same: number;
+}
+export const POINT_KINDS: PointKind[] = ['partner', 'family', 'friend', 'introduce', 'tag', 'tension'];
+export const POINT_LABEL: Record<PointKind, string> = {
+  partner: 'Partner',
+  family: 'Family',
+  friend: 'Friend',
+  introduce: 'Introduce',
+  tag: 'Shared social group (tag)',
+  tension: 'Tension',
+};
+export const DEFAULT_POINTS: Record<PointKind, PointRow> = {
+  partner: { next: 50, across: 10, same: 5 },
+  family: { next: 10, across: 8, same: 6 },
+  friend: { next: 10, across: 8, same: 6 },
+  introduce: { next: 12, across: 10, same: 6 },
+  tag: { next: 3, across: 2, same: 1 },
+  tension: { next: -10, across: -10, same: -10 },
+};
+export const pointsOf = (R: Pick<SeatingRules, 'points'>): Record<PointKind, PointRow> =>
+  Object.fromEntries(POINT_KINDS.map((k) => [k, { ...DEFAULT_POINTS[k], ...(R.points?.[k] ?? {}) }])) as Record<PointKind, PointRow>;
 
 export const DEFAULT_RULES: SeatingRules = {
   household: 'adjacent',
   family: 7,
   friend: 6,
-  coworker: 3,
-  acquaintance: 1.5,
   tension: -6,
   beside: 14,
   together: 12,
@@ -95,8 +119,6 @@ export const SLIDERS: { section: string; items: RuleSlider[] }[] = [
     items: [
       { key: 'family', label: 'Family', help: 'How strongly relatives are seated together.', min: 0, max: 20, step: 0.5, ends: ['Ignore', 'Strong'] },
       { key: 'friend', label: 'Friends', help: 'How strongly friends are seated together.', min: 0, max: 20, step: 0.5, ends: ['Ignore', 'Strong'] },
-      { key: 'coworker', label: 'Coworkers', help: 'How strongly people who work together are seated together.', min: 0, max: 20, step: 0.5, ends: ['Ignore', 'Strong'] },
-      { key: 'acquaintance', label: 'Acquaintances', help: 'A light pull for people who know each other a little.', min: 0, max: 10, step: 0.5, ends: ['Ignore', 'Strong'] },
       { key: 'tension', label: 'Tension', help: 'How hard to keep people with tension at different tables.', min: -30, max: 0, step: 0.5, ends: ['Strong', 'Ignore'] },
     ],
   },
@@ -129,7 +151,7 @@ export const SLIDERS: { section: string; items: RuleSlider[] }[] = [
 
 export const PRESETS: { name: string; help: string; rules: Partial<SeatingRules> }[] = [
   { name: 'Balanced', help: 'The defaults: relationships first, then groups.', rules: DEFAULT_RULES },
-  { name: 'Friends first', help: 'Lean hard on groups and ties; tables can be uneven.', rules: { ...DEFAULT_RULES, group: 5, friend: 9, coworker: 5, loner: 6, balanceStrength: 0.3 } },
+  { name: 'Friends first', help: 'Lean hard on groups and ties; tables can be uneven.', rules: { ...DEFAULT_RULES, group: 5, friend: 9, loner: 6, balanceStrength: 0.3 } },
   { name: 'Mix the families', help: 'Blend both sides at every table, keeping friend groups intact.', rules: { ...DEFAULT_RULES, side: -2.5, group: 3, loner: 4 } },
   { name: 'Keep sides apart', help: 'Each partner\'s guests mostly sit with their own side.', rules: { ...DEFAULT_RULES, side: 3 } },
   { name: 'Minimal changes', help: 'Re-run after RSVP changes without reshuffling everyone.', rules: { ...DEFAULT_RULES, stability: 8 } },

@@ -1283,8 +1283,7 @@ body.is-dragging .unseat-zone {
 .net .b-partner { --e: var(--accent); stroke-width: 4.5; }
 .net .b-family { --e: oklch(0.6 0.14 330); stroke-width: 3.2; }
 .net .b-friend { --e: var(--ok); stroke-width: 2.6; }
-.net .b-coworker { --e: oklch(0.66 0.13 65); stroke-width: 2.2; }
-.net .b-acquaintance { --e: color-mix(in oklch, var(--ink-3) 70%, var(--canvas)); stroke-width: 1.4; stroke-dasharray: 3 4; }
+.net .b-introduce { --e: oklch(0.74 0.15 85); stroke-width: 2.6; stroke-dasharray: 2 5; }
 .net .b-tension { --e: var(--warn); stroke-width: 1.8; stroke-dasharray: 6 4; }
 .net .edge.s-beside { stroke-width: 5; }
 .net .edge.s-apart { stroke: var(--bad); stroke-dasharray: 2 4; stroke-width: 2.4; }
@@ -1352,9 +1351,9 @@ body.is-dragging .unseat-zone {
 .brush.b-partner .sw { border-top-width: 5px; }
 .brush.b-family { --b: oklch(0.6 0.14 330); }
 .brush.b-friend { --b: var(--ok); }
-.brush.b-coworker { --b: oklch(0.66 0.13 65); }
-.brush.b-acquaintance { --b: color-mix(in oklch, var(--ink-3) 70%, var(--canvas)); }
-.brush.b-acquaintance .sw, .brush.b-tension .sw { border-top-style: dashed; }
+.brush.b-introduce { --b: oklch(0.74 0.15 85); }
+.brush.b-introduce .sw { border-top-style: dotted; }
+.brush.b-tension .sw { border-top-style: dashed; }
 .brush.b-tension { --b: var(--warn); }
 .palette.brush-opts {
   position: absolute;
@@ -1371,8 +1370,7 @@ body.is-dragging .unseat-zone {
 .tie .sw { width: 10px; height: 0; border-top: 3px solid var(--b, var(--ok)); border-radius: 2px; display: inline-block; }
 .tie.b-partner { --b: var(--accent); }
 .tie.b-family { --b: oklch(0.6 0.14 330); }
-.tie.b-coworker { --b: oklch(0.66 0.13 65); }
-.tie.b-acquaintance { --b: var(--ink-3); }
+.tie.b-introduce { --b: oklch(0.74 0.15 85); }
 .tie.b-tension { --b: var(--warn); }
 .tie-detail { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding-left: 8px; }
 .chip.ctx { font-size: 11px; padding: 1px 4px 1px 8px; display: inline-flex; align-items: center; gap: 2px; }
@@ -2316,3 +2314,15 @@ select.cell-input.rsvp-pending {
 .reset-item .badge { justify-self: start; }
 
 .seat-hit { fill: transparent; stroke: none; }
+
+.points-table { border-collapse: collapse; font-size: 13px; }
+.points-table th { text-align: left; font-weight: 500; padding: 3px 8px 3px 0; color: var(--ink-2); }
+.points-table thead th { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+.points-table td { padding: 2px 4px; }
+.points-table .input { width: 64px; padding: 3px 6px; text-align: right; }
+.happy-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; font-size: 12.5px; }
+.happy-list .num { display: inline-block; min-width: 38px; color: var(--ok); font-weight: 600; }
+.happy-list .num.neg { color: var(--bad); }
+.intro-box { display: grid; gap: 6px; }
+.intro-list { display: grid; gap: 4px; max-height: 220px; overflow: auto; }
+.intro-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; }

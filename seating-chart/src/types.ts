@@ -54,7 +54,8 @@ export interface ImportRecord {
 }
 
 /** Who two guests are to each other. Where they work / how they met goes in `contexts`. */
-export type Bond = 'partner' | 'family' | 'friend' | 'coworker' | 'acquaintance' | 'tension';
+/** introduce: people we want to meet each other (e.g. friends from different times of our lives). */
+export type Bond = 'partner' | 'family' | 'friend' | 'introduce' | 'tension';
 /** @deprecated use Bond */
 export type RelationKind = Bond;
 /** An explicit seating instruction that overrides what the relationship alone implies. */

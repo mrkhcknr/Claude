@@ -4,14 +4,13 @@
  */
 import type { Bond, Relation, SeatRule } from './types';
 
-export const BONDS: Bond[] = ['partner', 'family', 'friend', 'coworker', 'acquaintance', 'tension'];
+export const BONDS: Bond[] = ['partner', 'family', 'friend', 'introduce', 'tension'];
 
 export const BOND_LABEL: Record<Bond, string> = {
   partner: 'Partner',
   family: 'Family',
   friend: 'Friend',
-  coworker: 'Coworker',
-  acquaintance: 'Acquaintance',
+  introduce: 'Introduce',
   tension: 'Tension',
 };
 
@@ -19,8 +18,7 @@ export const BOND_HELP: Record<Bond, string> = {
   partner: 'A couple — seated side by side',
   family: 'Related to each other',
   friend: 'Friends',
-  coworker: 'Work together, now or before',
-  acquaintance: 'Know each other a little',
+  introduce: "Haven't met, but we'd love them to",
   tension: 'Better at different tables',
 };
 
@@ -51,6 +49,7 @@ export function describeTie(r: Pick<Relation, 'kind' | 'seat' | 'contexts'>) {
 }
 
 const LEGACY: Record<string, Pick<Relation, 'kind' | 'seat'>> = {
+  coworker: { kind: 'friend' },
   beside: { kind: 'friend', seat: 'beside' },
   together: { kind: 'friend', seat: 'together' },
   prefer: { kind: 'friend' },
@@ -59,8 +58,10 @@ const LEGACY: Record<string, Pick<Relation, 'kind' | 'seat'>> = {
 };
 
 /** Convert ties saved by the earlier seating-instruction model. */
-export function migrateRelation(r: Relation | (Omit<Relation, 'kind'> & { kind: string })): Relation {
+export function migrateRelation(r: Relation | (Omit<Relation, 'kind'> & { kind: string })): Relation | null {
   if ((BONDS as string[]).includes(r.kind)) return r as Relation;
+  // acquaintances are no longer part of the graph
+  if (r.kind === 'acquaintance') return null;
   const m = LEGACY[r.kind] ?? { kind: 'friend' as Bond };
   const out: Relation = { ...(r as Relation), kind: m.kind };
   if (m.seat && !out.seat) out.seat = m.seat;

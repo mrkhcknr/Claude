@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { happinessOf } from './happiness';
 import type { Bond, Guest, Id, Project, Relation, RoomElement, SeatRule, Rsvp, Side, Table, TableShape, ZoneKind } from './types';
 import {
   alignTables,
@@ -859,6 +860,7 @@ function GuestInspector({ g, analysis }: { g: Guest; analysis: Analysis }) {
           <span className="muted">Not linked. Select several guests to make a household.</span>
         )}
       </div>
+      {loc && <HappinessSection g={g} />}
       <div className="section">
         <h3>
           Relationships <span className="badge num">{rels.length}</span>
@@ -1045,9 +1047,9 @@ export function MultiGuest({ guests }: { guests: Guest[] }) {
               Partners
             </button>
           )}
-          {(['family', 'friend', 'coworker', 'acquaintance'] as const).map((k) => (
+          {(['family', 'friend', 'introduce'] as const).map((k) => (
             <button key={k} className="btn sm" onClick={() => relateAll(ids, { kind: k })} title={BOND_HELP[k]}>
-              {k === 'family' ? 'Family' : BOND_LABEL[k] + 's'}
+              {k === 'family' ? 'Family' : k === 'introduce' ? 'Introduce them' : BOND_LABEL[k] + 's'}
             </button>
           ))}
           <button className="btn sm" onClick={() => relateAll(ids, { kind: 'tension', seat: 'apart' })}>
@@ -1203,6 +1205,36 @@ function TableTagsField({ value, onChange, options, placeholder = 'Add tag…' }
         ))}
         <option value="Kids" />
       </datalist>
+    </div>
+  );
+}
+
+/** Where this guest's happiness points come from. */
+function HappinessSection({ g }: { g: Guest }) {
+  const project = useStore((s) => s.project);
+  const h = useMemo(() => happinessOf(project).byGuest.get(g.id), [project, g.id]);
+  const byId = useMemo(() => new Map(project.guests.map((x) => [x.id, x])), [project.guests]);
+  if (!h) return null;
+  const where = { next: 'next to', across: 'across from', same: 'at the table with' } as const;
+  const tagLabel = useMemo(() => new Map(allTags(project).map((t) => [t.label.toLowerCase(), t.label])), [project]);
+  const what = (k: string, tag?: string) => (k === 'tag' ? `shares ${tagLabel.get(tag ?? '') ?? tag}` : k);
+  return (
+    <div className="section">
+      <h3>
+        Happiness <span className="badge num">{Math.round(h.points)} pts</span>
+      </h3>
+      {h.items.length ? (
+        <ul className="happy-list">
+          {h.items.slice(0, 8).map((x, i) => (
+            <li key={i}>
+              <span className={`num ${x.pts < 0 ? 'neg' : ''}`}>{x.pts > 0 ? '+' : ''}{Math.round(x.pts * 10) / 10}</span> {where[x.prox]} {byId.get(x.other)?.name} <span className="muted">({what(x.kind, x.tag)})</span>
+            </li>
+          ))}
+          {h.items.length > 8 && <li className="muted">and {h.items.length - 8} more</li>}
+        </ul>
+      ) : (
+        <span className="muted">Nobody they're connected to is at this table.</span>
+      )}
     </div>
   );
 }

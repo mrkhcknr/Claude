@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { happinessOf } from './happiness';
 import type { Guest, Id, Opening, Project, RefLayer, RoomElement, Table, Wall, Zone } from './types';
 import { addReferenceFile, alignTwoPoints, refToWorld, scaleFromLength, updateRef, worldToRef } from './refs';
 import { toast } from './store';
@@ -129,6 +130,7 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
 
   // ---------- derived ----------
   const guestById = useMemo(() => new Map(project.guests.map((x) => [x.id, x])), [project.guests]);
+  const happy = useMemo(() => happinessOf(project), [project]);
   const matcher = useMemo(() => guestMatcher(project, filters, analysis.tableOf, analysis.discByGuest), [project, filters, analysis.tableOf]);
   const clashTables = useMemo(() => new Set(analysis.clearance.map((c) => c.tableId)), [analysis.clearance]);
   const colorOf = useMemo(() => seatColorFn(project), [project]);
@@ -756,7 +758,7 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
                           {firstName(guest.name)}
                         </text>
                       )}
-                      <title>{guest ? `${guest.name}${guest.meal ? ' · ' + guest.meal : ''}${guest.dietary ? ' · ' + guest.dietary : ''}` : `Empty seat ${i + 1}`}</title>
+                      <title>{guest ? `${guest.name} · ${Math.round(happy.byGuest.get(guest.id)?.points ?? 0)} pts${guest.meal ? ' · ' + guest.meal : ''}${guest.dietary ? ' · ' + guest.dietary : ''}` : `Empty seat ${i + 1}`}</title>
                     </g>
                   );
                 })}

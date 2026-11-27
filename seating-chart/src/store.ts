@@ -75,7 +75,7 @@ export function migrate(p: Partial<Project>): Project {
     ...p,
     settings: { ...base.settings, ...(p.settings ?? {}) },
     guests: (p.guests ?? []).map((g) => ({ ...blankGuest(), ...g })),
-    relations: (p.relations ?? []).map(migrateRelation),
+    relations: (p.relations ?? []).map(migrateRelation).filter((r): r is Relation => !!r),
     tables: (p.tables ?? []).map((t) => splitTableName({ ...tableDefaults(), ...t })),
     elements: p.elements ?? [],
     refs: p.refs ?? [],

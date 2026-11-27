@@ -4,6 +4,8 @@ import { joinedGroups, packSlots, pairCapacity, slotsOf } from './geometry';
 import { effectiveSeat } from './relations';
 import { rulesOf } from './rules';
 import { tableTags } from './util';
+import { happinessContext, happinessOf } from './happiness';
+import { improveSeating } from './optimize';
 
 export interface AutoSeatOptions {
   /** keep: leave everyone already seated where they are; reseat: move anyone who isn't pinned */
@@ -11,6 +13,8 @@ export interface AutoSeatOptions {
   includePending: boolean;
   /** Restrict to these tables (default: all unlocked). */
   tableIds?: Id[];
+  /** Then swap guests around to maximise happiness points (default on) */
+  optimize?: boolean;
   effort?: number;
 }
 
@@ -22,6 +26,7 @@ export interface AutoSeatResult {
   /** Guests seated at a table tagged for them / guests who have a tagged table */
   tagMatched: number;
   tagWanted: number;
+  /** Total happiness points after the tag/connection steps, and after optimising */
   before: number;
   after: number;
 }
@@ -85,7 +90,7 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
       apart.add(String(key(a, b)));
       continue;
     }
-    const w = r.kind === 'tension' ? -2 : seat === 'beside' ? 4 : seat === 'together' ? 3 : r.kind === 'acquaintance' ? 1 : 2;
+    const w = r.kind === 'tension' ? -2 : seat === 'beside' ? 4 : seat === 'together' ? 3 : r.kind === 'introduce' ? 2 : 2;
     W[a * N + b] = W[b * N + a] = Math.max(W[a * N + b], w);
     if (seat === 'beside') link(a, b);
   }
@@ -210,7 +215,34 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
     warnings.push(`Not every couple could sit side by side at ${crowded.join(', ')}: those tables have more couples than side-by-side chairs (a 3-chair side fits one couple). Add seats, change a table's tags, or move a couple by hand.`);
   const unplaced = units.filter((_, k) => unitTable[k] < 0).flat().map((i) => guests[i]);
   if (unplaced.length) warnings.push(`${unplaced.length} guest(s) didn't fit — add tables or seats.`);
-  return { seating, placed: placedSet.size, unplaced, warnings, tagMatched, tagWanted, before: 0, after: 0 };
+
+  // ---- step 3: swap guests between chairs to raise total happiness, within the same hard rules
+  let finalSeating = seating;
+  const before = happinessOf(p, seating).total;
+  let after = before;
+  if (opt.optimize !== false) {
+    const managed = groupsV.flat();
+    const allowedTables = new Map<Id, Set<Id>>();
+    step1.forEach((k) => {
+      if (unitTable[k] < 0 || !homes[k].includes(unitTable[k])) return;
+      const ids = new Set(homes[k].flatMap((t) => groupsV[t].map((x) => x.id)));
+      for (const i of units[k]) if (matchesTable(i, unitTable[k])) allowedTables.set(guests[i].id, ids);
+    });
+    const fixed = new Set<Id>();
+    for (let i = 0; i < N; i++) if (!movable(i)) fixed.add(guests[i].id);
+    const apartIds = new Set<string>();
+    for (let a = 0; a < N; a++)
+      for (let b = a + 1; b < N; b++)
+        if (apart.has(String(key(a, b)))) {
+          const x = guests[a].id,
+            y = guests[b].id;
+          apartIds.add(x < y ? x + '|' + y : y + '|' + x);
+        }
+    const ctx = happinessContext(p, managed, guests);
+    finalSeating = improveSeating(p, seating, ctx, { tables: managed, fixed, allowed: allowedTables, apart: apartIds }).seating;
+    after = happinessOf(p, finalSeating).total;
+  }
+  return { seating: finalSeating, placed: placedSet.size, unplaced, warnings, tagMatched, tagWanted, before: Math.round(before), after: Math.round(after) };
 }
 
 /** Order a unit's members so the strongest pairs (e.g. "next to") are adjacent. */

@@ -22,7 +22,7 @@ export const groupTags = (g: Guest) =>
 
 export function buildAffinity(p: Project) {
   const R = rulesOf(p.settings);
-  const bondW: Record<Relation['kind'], number> = { partner: 0, family: R.family, friend: R.friend, coworker: R.coworker, acquaintance: R.acquaintance, tension: R.tension };
+  const bondW: Record<Relation['kind'], number> = { partner: 0, family: R.family, friend: R.friend, introduce: R.friend, tension: R.tension };
   const seatW = { beside: R.beside, together: R.together, apart: R.apartHard ? -1000 : R.apart };
   const rel = new Map<string, Relation>();
   for (const r of p.relations) rel.set(key(r.a, r.b), r);

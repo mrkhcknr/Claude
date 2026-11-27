@@ -417,3 +417,61 @@ export function snapToWall(p: Project, pt: Pt, reach = 2.5): { x: number; y: num
 }
 
 export const isPointish = (e: RoomElement): e is Column | Opening | Zone => e.kind !== 'wall';
+
+// ---------- proximity between chairs (for happiness points) ----------
+export type Prox = 'next' | 'across' | 'same';
+export const seatKey = (t: string, s: number) => `${t}:${s}`;
+
+/**
+ * For every chair ("tableId:seat"), the chairs that are next to it (side by side, including across a
+ * seam between pushed-together tables), across from it (facing, on the opposite side of the same
+ * table), or elsewhere at the same table.
+ */
+export function seatProximity(tables: Table[]): Map<string, Map<string, Prox>> {
+  const out = new Map<string, Map<string, Prox>>();
+  const rank: Record<Prox, number> = { next: 3, across: 2, same: 1 };
+  const add = (a: string, b: string, p: Prox) => {
+    if (a === b) return;
+    let m = out.get(a);
+    if (!m) out.set(a, (m = new Map()));
+    const cur = m.get(b);
+    if (!cur || rank[p] > rank[cur]) m.set(b, p);
+  };
+  for (const t of tables) {
+    const loc = seatLocal(t);
+    const n = loc.length;
+    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (i !== j) add(seatKey(t.id, i), seatKey(t.id, j), 'same');
+    if (t.shape === 'round' || t.shape === 'oval') {
+      // the chair(s) diametrically opposite
+      for (let i = 0; i < n; i++) {
+        const o = (i + n / 2) % n;
+        for (const j of Number.isInteger(o) ? [o] : [Math.floor(o), Math.ceil(o) % n]) {
+          add(seatKey(t.id, i), seatKey(t.id, j), 'across');
+          add(seatKey(t.id, j), seatKey(t.id, i), 'across');
+        }
+      }
+    } else {
+      const hw = t.w / 2,
+        hh = t.h / 2;
+      const { top, bottom, left, right } = rectSides(t);
+      const tolX = (t.w / Math.max(1, top, bottom)) * 0.6,
+        tolY = (t.h / Math.max(1, left, right)) * 0.6;
+      for (let i = 0; i < n; i++)
+        for (let j = 0; j < n; j++) {
+          const a = loc[i],
+            b = loc[j];
+          const facingLong = Math.abs(a.y) > hh && Math.abs(b.y) > hh && a.y * b.y < 0 && Math.abs(a.x - b.x) < tolX;
+          const facingEnds = Math.abs(a.x) > hw && Math.abs(b.x) > hw && a.x * b.x < 0 && Math.abs(a.y - b.y) < tolY;
+          if (facingLong || facingEnds) add(seatKey(t.id, i), seatKey(t.id, j), 'across');
+        }
+    }
+  }
+  for (const g of joinedGroups(tables)) {
+    const slots = slotsOf(g);
+    for (const [i, j] of slotNeighbours(slots)) {
+      add(seatKey(slots[i].t, slots[i].s), seatKey(slots[j].t, slots[j].s), 'next');
+      add(seatKey(slots[j].t, slots[j].s), seatKey(slots[i].t, slots[i].s), 'next');
+    }
+  }
+  return out;
+}
