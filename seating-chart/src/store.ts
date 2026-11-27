@@ -602,7 +602,27 @@ export function updateTables(ids: Id[], patch: Partial<Table> | ((t: Draft<Table
   );
 }
 
-export function deleteTables(ids: Id[]) {
+/** Lock or unlock the position of tables / room elements. With no ids, applies to the whole floor plan. */
+export function setFixed(v: boolean, ids?: Id[]) {
+  const s = ids && new Set(ids);
+  update((d) => {
+    for (const t of d.tables) if (!s || s.has(t.id)) t.fixed = v;
+    for (const e of d.elements) if (!s || s.has(e.id)) e.fixed = v;
+  });
+}
+
+/** Drop position-locked items from a list of ids, telling the user what was skipped. */
+function unlockedOnly(ids: Id[], what: string) {
+  const { project } = get();
+  const fixed = new Set([...project.tables, ...project.elements].filter((x) => x.fixed).map((x) => x.id));
+  const ok = ids.filter((id) => !fixed.has(id));
+  if (ok.length < ids.length) toast(`${ids.length - ok.length} locked ${what} ${ids.length - ok.length === 1 ? 'was' : 'were'} skipped. Unlock to change ${ids.length - ok.length === 1 ? 'it' : 'them'}.`);
+  return ok;
+}
+
+export function deleteTables(ids0: Id[]) {
+  const ids = unlockedOnly(ids0, 'table');
+  if (!ids.length) return;
   const s = new Set(ids);
   update((d) => {
     d.tables = d.tables.filter((t) => !s.has(t.id));
@@ -616,7 +636,7 @@ export function duplicateSelection() {
   if (!selection) return;
   if (selection.type === 'table') {
     const src = project.tables.filter((t) => selection.ids.includes(t.id));
-    const made = src.map((t, i) => ({ ...t, id: uid(), x: t.x + 3, y: t.y + 3, locked: false, label: /^(Table\s*)?\d+$/i.test(t.label) ? nextTableLabel(project, i) : t.label + ' copy' }));
+    const made = src.map((t, i) => ({ ...t, id: uid(), x: t.x + 3, y: t.y + 3, locked: false, fixed: false, label: /^(Table\s*)?\d+$/i.test(t.label) ? nextTableLabel(project, i) : t.label + ' copy' }));
     update((d) => {
       for (const t of made) {
         d.tables.push(t);
@@ -627,7 +647,7 @@ export function duplicateSelection() {
   } else if (selection.type === 'element') {
     const src = project.elements.filter((e) => selection.ids.includes(e.id));
     const made = src.map((e) => {
-      const c = { ...e, id: uid() } as RoomElement;
+      const c = { ...e, id: uid(), fixed: false } as RoomElement;
       if (c.kind === 'wall') Object.assign(c, { x1: c.x1 + 2, y1: c.y1 + 2, x2: c.x2 + 2, y2: c.y2 + 2 });
       else Object.assign(c, { x: c.x + 2, y: c.y + 2 });
       return c;
@@ -683,7 +703,9 @@ export function updateElements(ids: Id[], fn: (e: Draft<RoomElement>) => void, h
   );
 }
 
-export function deleteElements(ids: Id[]) {
+export function deleteElements(ids0: Id[]) {
+  const ids = unlockedOnly(ids0, 'room item');
+  if (!ids.length) return;
   const s = new Set(ids);
   update((d) => {
     d.elements = d.elements.filter((e) => !s.has(e.id));
@@ -752,7 +774,9 @@ export function deleteSelection() {
 // ---------- alignment ----------
 type AlignMode = 'left' | 'cx' | 'right' | 'top' | 'cy' | 'bottom' | 'dh' | 'dv';
 export function alignTables(ids: Id[], mode: AlignMode) {
-  const ts = get().project.tables.filter((t) => ids.includes(t.id));
+  const all = get().project.tables.filter((t) => ids.includes(t.id));
+  const ts = all.filter((t) => !t.fixed);
+  if (ts.length < all.length) toast(`${all.length - ts.length} locked table(s) stayed put.`);
   if (ts.length < 2) return;
   const xs = ts.map((t) => t.x),
     ys = ts.map((t) => t.y);

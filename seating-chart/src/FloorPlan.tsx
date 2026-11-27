@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { happinessOf } from './happiness';
 import type { Guest, Id, Opening, Project, RefLayer, RoomElement, Table, Wall, Zone } from './types';
 import { addReferenceFile, alignTwoPoints, refToWorld, scaleFromLength, updateRef, worldToRef } from './refs';
-import { toast } from './store';
+import { setFixed, toast } from './store';
 import {
   addElement,
   addTable,
@@ -357,8 +357,8 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
       (e.currentTarget as Element).setPointerCapture(e.pointerId);
       const tables = new Map<Id, Pt>();
       const els = new Map<Id, RoomElement>();
-      if (isTable) for (const t of project.tables) if (ids.includes(t.id) && !t.locked) tables.set(t.id, { x: t.x, y: t.y });
-      if (!isTable) for (const x of project.elements) if (ids.includes(x.id)) els.set(x.id, x);
+      if (isTable) for (const t of project.tables) if (ids.includes(t.id) && !t.fixed) tables.set(t.id, { x: t.x, y: t.y });
+      if (!isTable) for (const x of project.elements) if (ids.includes(x.id) && !x.fixed) els.set(x.id, x);
       setG({ t: 'move', start: p, tables, els, moved: false });
       return;
     }
@@ -704,7 +704,7 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
             if (la > 90) la -= 180;
             const labelRot = long ? la : 0;
             return (
-              <g key={t.id} className={`tbl ${t.locked ? 'locked' : ''} ${overTable === t.id ? 'over' + (dropBad ? ' bad' : '') : ''} ${tblDim ? 'dim' : ''}`} data-table-id={t.id}>
+              <g key={t.id} className={`tbl ${t.locked ? 'locked' : ''} ${t.fixed ? 'fixed' : ''} ${overTable === t.id ? 'over' + (dropBad ? ' bad' : '') : ''} ${tblDim ? 'dim' : ''}`} data-table-id={t.id}>
                 <g transform={`translate(${t.x} ${t.y}) rotate(${t.rotation})`} data-drop="table" data-table={t.id}>
                   <TableShapeEl t={t} k={k} />
                   {sel && <TableShapeEl t={t} k={k} outline />}
@@ -836,8 +836,8 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
           })}
 
           {/* handles */}
-          {selTable && !selTable.locked && <Handles item={selTable} isTable k={k} />}
-          {selEl && <Handles item={selEl} isTable={false} k={k} />}
+          {selTable && !selTable.fixed && <Handles item={selTable} isTable k={k} />}
+          {selEl && !selEl.fixed && <Handles item={selEl} isTable={false} k={k} />}
 
           {/* live dimension readout while resizing */}
           {gesture?.t === 'handle' && (selTable || selEl) && <DimLabel item={(selTable ?? selEl)!} k={k} units={s} />}
@@ -1048,19 +1048,42 @@ function TableContextBar({ t, at }: { t: Table; at: Pt }) {
         </button>
       </span>
       <span className="palette-sep" style={{ width: 1, height: 18, background: 'var(--line)' }} />
-      <button className="icon-btn sm" title="Rotate 90° (R)" onClick={() => updateTables([t.id], { rotation: (t.rotation + 90) % 360 })}>
+      <button className="icon-btn sm" title="Rotate 90° (R)" disabled={t.fixed} onClick={() => updateTables([t.id], { rotation: (t.rotation + 90) % 360 })}>
         <Icon name="rotate" size="sm" />
       </button>
       <button className="icon-btn sm" title="Duplicate (Ctrl+D)" onClick={duplicateSelection}>
         <Icon name="copy" size="sm" />
       </button>
-      <button className="icon-btn sm" title={t.locked ? 'Unlock' : 'Lock position'} aria-pressed={t.locked} onClick={() => updateTables([t.id], { locked: !t.locked })}>
-        <Icon name={t.locked ? 'lock' : 'unlock'} size="sm" />
+      <button className={`icon-btn sm ${t.fixed ? 'is-locked' : ''}`} title={t.fixed ? 'Unlock position' : 'Lock position'} aria-label={t.fixed ? 'Unlock position' : 'Lock position'} aria-pressed={!!t.fixed} onClick={() => updateTables([t.id], { fixed: !t.fixed })}>
+        <Icon name={t.fixed ? 'lock' : 'unlock'} size="sm" />
       </button>
-      <button className="icon-btn sm" title="Delete (Del)" onClick={deleteSelection}>
+      <button className="icon-btn sm" title="Delete (Del)" disabled={t.fixed} onClick={deleteSelection}>
         <Icon name="trash" size="sm" />
       </button>
     </div>
+  );
+}
+
+/** One button for the whole floor plan: lock everything in place, or unlock it all for rearranging. */
+function LayoutLock() {
+  const total = useStore((s) => s.project.tables.length + s.project.elements.length);
+  const n = useStore((s) => s.project.tables.filter((t) => t.fixed).length + s.project.elements.filter((e) => e.fixed).length);
+  const all = total > 0 && n === total,
+    some = n > 0;
+  const label = all ? 'Floor plan locked. Click to unlock everything' : some ? 'Some items are locked. Click to lock everything' : 'Lock every table and room item in place';
+  return (
+    <button
+      className={`icon-btn ${all ? 'is-locked' : ''}`}
+      aria-pressed={all}
+      title={label}
+      aria-label={all ? 'Unlock floor plan' : 'Lock floor plan'}
+      onClick={() => {
+        setFixed(!all);
+        toast(all ? 'Floor plan unlocked: tables and room items can move.' : 'Floor plan locked. Select an item and use its lock button to unlock just that one.', true);
+      }}
+    >
+      <Icon name={all ? 'lock' : 'unlock'} />
+    </button>
   );
 }
 
@@ -1091,6 +1114,7 @@ function Palette({ fitView, zoom, scale }: { fitView: () => void; zoom: (f: numb
       <div className="palette tools" onPointerDown={(e) => e.stopPropagation()}>
         {tb('select', 'pointer', 'Select & move', 'V')}
         {tb('pan', 'hand', 'Pan', 'H')}
+        <LayoutLock />
         <span className="sep" />
         <Menu label="Add table" className="btn ghost sm" trigger={<><Icon name="round" size="sm" /> Table</>}>
           {(close) => (

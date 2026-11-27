@@ -112,7 +112,7 @@ export function App() {
         else if (k === 'c') setTool('column');
         else if (k === 'd') setTool('door');
         else if (k === '0') window.dispatchEvent(new Event('plan:fit'));
-        else if (k === 'r' && st.selection?.type === 'table') updateTables(st.selection.ids, (t) => void (t.rotation = (t.rotation + (e.shiftKey ? -15 : 15) + 360) % 360));
+        else if (k === 'r' && st.selection?.type === 'table') updateTables(st.selection.ids, (t) => void (!t.fixed && (t.rotation = (t.rotation + (e.shiftKey ? -15 : 15) + 360) % 360)));
         else if (k.startsWith('arrow') && st.selection && st.selection.type !== 'guest') {
           e.preventDefault();
           const step = e.shiftKey ? 2 : e.altKey ? 0.1 : st.project.settings.gridSize;
@@ -120,9 +120,9 @@ export function App() {
           const dy = k === 'arrowup' ? -step : k === 'arrowdown' ? step : 0;
           const ids = new Set(st.selection.ids);
           update((d) => {
-            for (const t of d.tables) if (ids.has(t.id) && !t.locked) (t.x += dx), (t.y += dy);
+            for (const t of d.tables) if (ids.has(t.id) && !t.fixed) (t.x += dx), (t.y += dy);
             for (const el of d.elements)
-              if (ids.has(el.id)) {
+              if (ids.has(el.id) && !el.fixed) {
                 if (el.kind === 'wall') (el.x1 += dx), (el.x2 += dx), (el.y1 += dy), (el.y2 += dy);
                 else (el.x += dx), (el.y += dy);
               }

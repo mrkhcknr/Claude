@@ -21,6 +21,7 @@ import {
   seatGuest,
   setRelation,
   setSelection,
+  setFixed,
   setView,
   tableName,
   unseat,
@@ -269,14 +270,23 @@ function TableInspector({ t, analysis }: { t: Table; analysis: Analysis }) {
             <button className="icon-btn sm" title="Duplicate" onClick={duplicateSelection}>
               <Icon name="copy" size="sm" />
             </button>
-            <button className="icon-btn sm" title={t.locked ? 'Unlock' : 'Lock'} aria-pressed={t.locked} onClick={() => set({ locked: !t.locked })}>
-              <Icon name={t.locked ? 'lock' : 'unlock'} size="sm" />
+            <button className={`icon-btn sm ${t.fixed ? 'is-locked' : ''}`} title={t.fixed ? 'Unlock position' : 'Lock position'} aria-label={t.fixed ? 'Unlock position' : 'Lock position'} aria-pressed={!!t.fixed} onClick={() => set({ fixed: !t.fixed })}>
+              <Icon name={t.fixed ? 'lock' : 'unlock'} size="sm" />
             </button>
-            <button className="icon-btn sm" title="Delete table" onClick={deleteSelection}>
+            <button className="icon-btn sm" title={t.fixed ? 'Unlock to delete' : 'Delete table'} disabled={t.fixed} onClick={deleteSelection}>
               <Icon name="trash" size="sm" />
             </button>
           </span>
         </div>
+        {t.fixed && (
+          <div className="lock-note">
+            <Icon name="lock" size="sm" />
+            <span style={{ flex: '1 1 160px' }}>Position locked. It can't be moved, resized or deleted.</span>
+            <button className="btn sm" onClick={() => setFixed(false, [t.id])}>
+              Unlock
+            </button>
+          </div>
+        )}
         <h2 className="insp-title">
           <TextField className="" value={tableName(t)} placeholder={t.label || 'Name this table'} onCommit={(v) => set(splitTableName({ name: v }))} list="flower-list" />
         </h2>
@@ -365,9 +375,12 @@ function TableInspector({ t, analysis }: { t: Table; analysis: Analysis }) {
           <span>Table tags</span>
           <TableTagsField value={tableTags(t)} onChange={(list) => set({ reservedFor: joinTags(list) })} options={tags.map((x) => x.label)} />
           <span className="muted small" style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
-            Guests with any of these tags are seated here first; others are kept away (strength under Rules → Reserved tables).
+            Guests with any of these tags start here. It's a nudge, not a requirement (strength under Auto-seat → Rules).
           </span>
         </div>
+        <label className="check">
+          <input type="checkbox" checked={t.locked} onChange={(e) => set({ locked: e.target.checked })} /> Lock seats: auto-seat leaves this table and its guests as they are
+        </label>
       </div>
       <div className="section">
         <h3>
@@ -513,8 +526,11 @@ function MultiTable({ tables }: { tables: Table[] }) {
           <button className="btn sm" onClick={renumberTables}>
             Renumber by position
           </button>
+          <button className="btn sm" onClick={() => setFixed(!tables.every((t) => t.fixed), ids)}>
+            <Icon name={tables.every((t) => t.fixed) ? 'unlock' : 'lock'} size="sm" /> {tables.every((t) => t.fixed) ? 'Unlock' : 'Lock'} positions
+          </button>
           <button className="btn sm" onClick={() => updateTables(ids, (t) => void (t.locked = !first.locked))}>
-            {first.locked ? 'Unlock' : 'Lock'} all
+            {first.locked ? 'Unlock' : 'Lock'} seats
           </button>
         </div>
         <div className="row">
@@ -547,11 +563,23 @@ function ElementInspector({ el }: { el: RoomElement }) {
             <button className="icon-btn sm" title="Duplicate" onClick={duplicateSelection}>
               <Icon name="copy" size="sm" />
             </button>
-            <button className="icon-btn sm" title="Delete" onClick={deleteSelection}>
+            <button className={`icon-btn sm ${el.fixed ? 'is-locked' : ''}`} title={el.fixed ? 'Unlock position' : 'Lock position'} aria-label={el.fixed ? 'Unlock position' : 'Lock position'} aria-pressed={!!el.fixed} onClick={() => setFixed(!el.fixed, [el.id])}>
+              <Icon name={el.fixed ? 'lock' : 'unlock'} size="sm" />
+            </button>
+            <button className="icon-btn sm" title={el.fixed ? 'Unlock to delete' : 'Delete'} disabled={el.fixed} onClick={deleteSelection}>
               <Icon name="trash" size="sm" />
             </button>
           </span>
         </div>
+        {el.fixed && (
+          <div className="lock-note">
+            <Icon name="lock" size="sm" />
+            <span style={{ flex: '1 1 160px' }}>Position locked. It can't be moved, resized or deleted.</span>
+            <button className="btn sm" onClick={() => setFixed(false, [el.id])}>
+              Unlock
+            </button>
+          </div>
+        )}
         {el.kind === 'zone' ? (
           <h2 className="insp-title">
             <TextField className="" value={el.label} onCommit={(v) => set((e) => void ((e as typeof el).label = v))} />
@@ -688,11 +716,17 @@ function RescaleRoom({ len, origin }: { len: number; origin: { x: number; y: num
 }
 
 function MultiElement({ n }: { n: number }) {
+  const sel = useStore((s) => s.selection);
+  const ids = sel?.type === 'element' ? sel.ids : [];
+  const allFixed = useStore((s) => s.project.elements.filter((e) => ids.includes(e.id)).every((e) => e.fixed));
   return (
     <div className="section">
       <span className="label">Selection</span>
       <h2 className="insp-title">{n} room items</h2>
       <div className="row">
+        <button className="btn sm" onClick={() => setFixed(!allFixed, ids)}>
+          <Icon name={allFixed ? 'unlock' : 'lock'} size="sm" /> {allFixed ? 'Unlock' : 'Lock'} positions
+        </button>
         <button className="btn sm" onClick={duplicateSelection}>
           Duplicate
         </button>

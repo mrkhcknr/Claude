@@ -95,8 +95,10 @@ export interface Table {
   seats: number;
   /** For rectangular tables: put chairs on the short ends too. */
   ends: boolean;
-  /** Locked tables are not moved by drag and are skipped by auto-seat. */
+  /** Seats locked: auto-seat leaves this table and its guests alone. */
   locked: boolean;
+  /** Position locked: can't be dragged, nudged, resized, rotated or deleted until unlocked. */
+  fixed?: boolean;
   /** Reserved for a category (e.g. "Kids"). Auto-seat prefers matching groups. */
   /** Table tags: groups this table is for, comma-separated ("Groom, Wedding Party"). Guests with any of them are preferred here. */
   reservedFor: string;
@@ -123,6 +125,8 @@ export type ZoneKind =
 export interface Wall {
   id: Id;
   kind: 'wall';
+  /** Position locked (see Table.fixed) */
+  fixed?: boolean;
   x1: number;
   y1: number;
   x2: number;
@@ -133,6 +137,8 @@ export interface Wall {
 export interface Opening {
   id: Id;
   kind: 'door' | 'window';
+  /** Position locked (see Table.fixed) */
+  fixed?: boolean;
   x: number;
   y: number;
   rotation: number;
@@ -142,6 +148,8 @@ export interface Opening {
 export interface Column {
   id: Id;
   kind: 'column';
+  /** Position locked (see Table.fixed) */
+  fixed?: boolean;
   x: number;
   y: number;
   size: number;
@@ -151,6 +159,8 @@ export interface Column {
 export interface Zone {
   id: Id;
   kind: 'zone';
+  /** Position locked (see Table.fixed) */
+  fixed?: boolean;
   zone: ZoneKind;
   label: string;
   x: number;

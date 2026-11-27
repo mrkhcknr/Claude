@@ -77,7 +77,7 @@ function SeatTab({ onDone }: { onDone: () => void }) {
         </li>
       </ol>
       <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
-        Always: "never same table" is respected, pinned guests and locked tables stay put, and couples and households get side-by-side chairs.
+        Always: "never same table" is respected, pinned guests and tables with locked seats stay put, and couples and households get side-by-side chairs.
       </p>
       <div className="field">
         <span>Who to place</span>
@@ -97,10 +97,10 @@ function SeatTab({ onDone }: { onDone: () => void }) {
             ? 'Keeps your seating and only makes swaps that raise happiness (after seating anyone new). Best after changing the social graph.'
             : opt.mode === 'keep'
               ? 'Seats people without a seat. Nobody already seated moves.'
-              : 'Seats everyone from scratch (pinned guests and locked tables stay).'}
+              : 'Seats everyone from scratch (pinned guests and tables with locked seats stay).'}
         </span>
         <span className="muted" style={{ fontSize: 12, textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
-          {seatedNow} seated now · {pinned} pinned · {locked} locked tables
+          {seatedNow} seated now · {pinned} pinned · {locked} tables with locked seats
         </span>
         {opt.mode === 'keep' && unseatedNow === 0 && (
           <span className="callout warn" style={{ fontSize: 12.5, textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
