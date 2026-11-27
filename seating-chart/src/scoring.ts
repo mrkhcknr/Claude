@@ -3,7 +3,8 @@ import { effectiveSeat, effectOf, type Effect } from './relations';
 import { clearanceIssues, joinedGroups, slotsAdjacent } from './geometry';
 import { likelySame, tableTags } from './util';
 import { tableName } from './store';
-import { rulesOf } from './rules';
+import { pointsOf, rulesOf } from './rules';
+import { pairModel } from './happiness';
 import { byGuest, findDiscrepancies } from './discrepancies';
 
 export const GROUP_WEIGHT = 2.5;
@@ -20,38 +21,19 @@ export const groupTags = (g: Guest) =>
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 
+/**
+ * How much two guests care about each other, for checks and chair order: the "same table" value from
+ * the happiness points (relationship, household or shared tag), and the seating effect of any tie.
+ */
 export function buildAffinity(p: Project) {
   const R = rulesOf(p.settings);
-  const bondW: Record<Relation['kind'], number> = { partner: 0, family: R.family, friend: R.friend, introduce: R.friend, tension: R.tension };
-  const seatW = { beside: R.beside, together: R.together, apart: R.apartHard ? -1000 : R.apart };
+  const P = pointsOf(R);
+  const pair = pairModel(p, p.guests.filter((g) => g.rsvp !== 'no'));
   const rel = new Map<string, Relation>();
   for (const r of p.relations) rel.set(key(r.a, r.b), r);
-  const tieW = (r: Relation) => {
-    const s = effectiveSeat(r);
-    return s === 'apart' ? seatW.apart + Math.min(0, bondW[r.kind]) : bondW[r.kind] + (s ? seatW[s] : 0);
-  };
-  const byId = new Map(p.guests.map((g) => [g.id, g]));
-  const tags = new Map(p.guests.map((g) => [g.id, groupTags(g)]));
-  // smaller, more specific groups count for more than big catch-all ones
-  const tagSize = new Map<string, number>();
-  for (const t of tags.values()) for (const x of t) tagSize.set(x, (tagSize.get(x) ?? 0) + 1);
-  const tagW = (t: string) => (R.specificGroups ? R.group * (0.6 + 0.8 * Math.min(1, 10 / (tagSize.get(t) ?? 1))) : R.group);
   function weight(a: Id, b: Id) {
-    const ga = byId.get(a),
-      gb = byId.get(b);
-    if (!ga || !gb) return 0;
-    let w = 0;
-    const r = rel.get(key(a, b));
-    if (r) w += tieW(r);
-    if (ga.party && ga.party === gb.party) w += R.household === 'soft' ? 10 : PARTY_WEIGHT;
-    const ta = tags.get(a)!,
-      tb = tags.get(b)!;
-    let tw = 0;
-    for (const t of ta) if (tb.includes(t)) tw += tagW(t);
-    w += Math.min(tw, R.group * 2.4);
-    if (ga.side && gb.side && ga.side !== 'both' && gb.side !== 'both') w += ga.side === gb.side ? R.side : -R.side * 0.5;
-    if (ga.child && gb.child) w += R.kids;
-    return w;
+    const l = pair(a, b);
+    return l ? P[l.kind].same * l.mult : 0;
   }
   return {
     weight,
@@ -74,52 +56,12 @@ export function inGroup(g: Guest, group: string) {
   return groupTags(g).includes(k);
 }
 
-/** Does a placement target ("area:Top room" / "table:t3") include this table? */
-export const targetHas = (target: string, t: Table) =>
-  target.startsWith('table:') ? target.slice(6) === t.id : target.startsWith('area:') ? (t.area ?? '').trim().toLowerCase() === target.slice(5).trim().toLowerCase() : false;
-
-export function targetLabel(target: string, p: Project) {
-  if (target.startsWith('area:')) return target.slice(5);
-  const t = p.tables.find((x) => x.id === target.slice(6));
-  return t ? tableName(t) : 'a deleted table';
-}
-
-export function groupLabel(group: string, p: Project) {
-  if (group === 'partner1') return `${p.settings.partner1}'s side`;
-  if (group === 'partner2') return `${p.settings.partner2}'s side`;
-  if (group === 'kids') return 'Kids';
-  return allGroupLabel(group, p);
-}
-const allGroupLabel = (k: string, p: Project) => {
-  for (const g of p.guests) for (const t of g.group.split(/[,;/|]/)) if (t.trim().toLowerCase() === k) return t.trim();
-  return k;
-};
-
-function reservedFit(g: Guest, t: Table, R: ReturnType<typeof rulesOf>) {
+/** Does the guest have one of the table's tags (or match "Kids", a partner's side)? */
+export function matchesTableTags(g: Guest, t: Table) {
   const list = tableTags(t).map((x) => x.toLowerCase());
-  if (!list.length) return 0;
+  if (!list.length) return true;
   const tags = groupTags(g);
-  // a guest belongs here if they match any of the table's tags
-  const matches = list.some((res) => tags.includes(res) || (g.child && /kid|child/.test(res)) || g.side === res || (res === 'family' && tags.some((x) => x.includes('family'))));
-  return matches ? R.reserved * 0.75 : -R.reserved * 1.25;
-}
-
-/** Bonus/penalty for a guest sitting at a given table regardless of who else is there. */
-export function tableFit(g: Guest, t: Table, p: Project) {
-  const R = rulesOf(p.settings);
-  let w = reservedFit(g, t, R);
-  if (R.placement) {
-    // assigned groups: pulled to their tables/area, pushed (gently) away from elsewhere
-    let mine = 0,
-      hit = 0;
-    for (const pl of p.settings.placements ?? []) {
-      if (!inGroup(g, pl.group)) continue;
-      mine++;
-      if (targetHas(pl.target, t)) hit++;
-    }
-    if (mine) w += hit ? R.placement : -R.placement * 0.5;
-  }
-  return w;
+  return list.some((res) => tags.includes(res) || (g.child && /kid|child/.test(res)) || g.side === res);
 }
 
 export interface TableReport {
@@ -159,7 +101,7 @@ export function analyse(p: Project) {
       let pos = false;
       for (let j = 0; j < guests.length; j++) {
         if (i === j) continue;
-        if (weight(guests[i].id, guests[j].id) >= 1) pos = true;
+        if (weight(guests[i].id, guests[j].id) > 0) pos = true;
         if (j > i) {
           const r = relation(guests[i].id, guests[j].id);
           if (r === 'apart' || r === 'tension') conflicts.push({ a: guests[i], b: guests[j], kind: r });
@@ -202,15 +144,9 @@ export function analyse(p: Project) {
     for (const g of r.isolated) issues.push({ level: 'info', text: `${g.name} has no ties at ${tableName(r.table)}`, tableId: r.table.id, guestIds: [g.id] });
     const res = tableTags(r.table).join(' / ');
     if (res) {
-      const off = r.guests.filter((g) => reservedFit(g, r.table, rulesOf(p.settings)) < 0);
+      const off = r.guests.filter((g) => !matchesTableTags(g, r.table));
       if (off.length) issues.push({ level: 'warn', text: `${off.length} guest${off.length === 1 ? '' : 's'} at ${tableName(r.table)} ${off.length === 1 ? "isn't" : "aren't"} tagged ${tableTags(r.table).map((x) => `"${x}"`).join(' or ')}`, tableId: r.table.id, guestIds: off.map((g) => g.id) });
     }
-  }
-
-  // group placements not honoured
-  for (const pl of p.settings.placements ?? []) {
-    const away = attending.filter((g) => inGroup(g, pl.group) && tableOf.has(g.id) && !targetHas(pl.target, p.tables.find((t) => t.id === tableOf.get(g.id))!));
-    if (away.length) issues.push({ level: 'info', text: `${away.length} of ${groupLabel(pl.group, p)} aren't at ${targetLabel(pl.target, p)}`, guestIds: away.map((g) => g.id) });
   }
 
   // split parties

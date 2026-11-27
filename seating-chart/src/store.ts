@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { produce, type Draft } from 'immer';
 import type { Guest, Id, Project, Relation, RoomElement, Selection, Table, TableLang, TableShape, Tool, ZoneKind } from './types';
-import { splitFlowerName, uid } from './util';
+import { joinTags, splitFlowerName, tableTags, uid } from './util';
 import { packSeats } from './geometry';
 import { migrateRelation } from './relations';
 import { ask } from './ui';
@@ -83,6 +83,19 @@ export function migrate(p: Partial<Project>): Project {
     seating: p.seating ?? {},
     version: 1,
   };
+  // "Where groups sit" was folded into table tags: carry any old placements over
+  if (out.settings.placements?.length) {
+    const label = (k: string) => {
+      if (k === 'kids') return 'Kids';
+      for (const g of out.guests) for (const t of g.group.split(/[,;/|]/)) if (t.trim().toLowerCase() === k) return t.trim();
+      return k;
+    };
+    out.tables = out.tables.map((t) => {
+      const add = out.settings.placements!.filter((pl) => (pl.target.startsWith('table:') ? pl.target.slice(6) === t.id : pl.target.startsWith('area:') && (t.area ?? '').trim().toLowerCase() === pl.target.slice(5).trim().toLowerCase())).map((pl) => label(pl.group));
+      return add.length ? { ...t, reservedFor: joinTags([...tableTags(t), ...add]) } : t;
+    });
+    out.settings = { ...out.settings, placements: undefined };
+  }
   return normalizeSeating(out);
 }
 

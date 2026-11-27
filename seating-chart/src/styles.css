@@ -2536,3 +2536,49 @@ select.cell-input.rsvp-pending {
     display: block !important;
   }
 }
+
+.insp-nav {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.insp-nav .muted {
+  flex: 1;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.tab-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: 4px;
+  vertical-align: top;
+}
+.seg.wrap {
+  flex-wrap: wrap;
+  border-radius: 16px;
+  max-width: 100%;
+}
+.seg.wrap button {
+  flex: 1 1 auto;
+}
+.moves-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  max-height: 180px;
+  overflow: auto;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.moves-list li {
+  margin: 2px 0;
+}

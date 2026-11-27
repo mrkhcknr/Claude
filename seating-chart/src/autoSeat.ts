@@ -1,5 +1,5 @@
 import type { Guest, Id, Project } from './types';
-import { groupTags, inGroup, targetHas } from './scoring';
+import { groupTags, inGroup } from './scoring';
 import { joinedGroups, packSlots, pairCapacity, slotsOf } from './geometry';
 import { effectiveSeat } from './relations';
 import { rulesOf } from './rules';
@@ -8,8 +8,12 @@ import { happinessContext, happinessOf } from './happiness';
 import { improveSeating } from './optimize';
 
 export interface AutoSeatOptions {
-  /** keep: leave everyone already seated where they are; reseat: move anyone who isn't pinned */
-  mode: 'keep' | 'reseat';
+  /**
+   * keep: leave everyone already seated where they are, seat the rest;
+   * improve: seat the rest, then fine-tune everyone's seats by swapping (starting from the current seating);
+   * reseat: start over for anyone who isn't pinned
+   */
+  mode: 'keep' | 'improve' | 'reseat';
   includePending: boolean;
   /** Restrict to these tables (default: all unlocked). */
   tableIds?: Id[];
@@ -26,9 +30,11 @@ export interface AutoSeatResult {
   /** Guests seated at a table tagged for them / guests who have a tagged table */
   tagMatched: number;
   tagWanted: number;
-  /** Total happiness points after the tag/connection steps, and after optimising */
+  /** Total happiness points before (the current seating in "improve" mode) and after */
   before: number;
   after: number;
+  /** Guests whose seat changed: from/to table ids (from is empty for newly seated guests) */
+  moves: { guestId: Id; from?: Id; to: Id; sameTable: boolean }[];
 }
 
 /**
@@ -63,7 +69,7 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
       const i = gIndex.get(gid)!;
       const ti = tIndex.get(tid);
       if (ti === undefined) fixedElsewhere[i] = 1;
-      else if (opt.mode === 'keep' || guests[i].pinned) fixedAt[i] = ti;
+      else if (opt.mode !== 'reseat' || guests[i].pinned) fixedAt[i] = ti;
     }
   }
   const movable = (i: number) => fixedAt[i] < 0 && !fixedElsewhere[i];
@@ -95,11 +101,10 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
     if (seat === 'beside') link(a, b);
   }
 
-  // ---- tags: what each table is for (its own tags + "where groups sit" placements), and each guest's tags
+  // ---- tags: what each table is for, and each guest's tags
   const tagsOfTable = groupsV.map((g) => {
     const s = new Set<string>();
     for (const t of g) for (const x of tableTags(t)) s.add(x.toLowerCase());
-    for (const pl of p.settings.placements ?? []) if (g.some((t) => targetHas(pl.target, t))) s.add(pl.group.toLowerCase());
     return s;
   });
   const matchesTable = (i: number, t: number) => {
@@ -129,6 +134,15 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
   const pairsAt = groupsV.map(() => 0);
   // a household of 3 fills one 3-chair side, the same space one couple takes
   const pairsOf = (u: number[]) => (u.length < 2 ? 0 : u.length === 3 ? 1 : Math.ceil(u.length / 2));
+  // couples and households already sitting at a table use its side-by-side spots too
+  for (let t = 0; t < T; t++) {
+    const parties = new Map<string, number>();
+    for (const i of members[t]) if (guests[i].party) parties.set(guests[i].party, (parties.get(guests[i].party) ?? 0) + 1);
+    for (const [k, n] of parties) {
+      void k;
+      pairsAt[t] += n < 2 ? 0 : n === 3 ? 1 : Math.ceil(n / 2);
+    }
+  }
   const allowedAt = (u: number[], t: number) =>
     free(t) >= u.length && (!R.couplesSideBySide || pairsAt[t] + pairsOf(u) <= pairSlots[t]) && !u.some((i) => members[t].some((j) => apart.has(String(key(i, j)))));
   const ties = (u: number[], t: number) => u.reduce((s, i) => s + members[t].reduce((q, j) => q + W[i * N + j], 0), 0);
@@ -222,14 +236,22 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
   let after = before;
   if (opt.optimize !== false) {
     const managed = groupsV.flat();
+    // anyone sitting at a table tagged for them may only move between tables tagged for them
+    const tableIndexOf = new Map<Id, number>();
+    groupsV.forEach((g, t) => g.forEach((x) => tableIndexOf.set(x.id, t)));
     const allowedTables = new Map<Id, Set<Id>>();
-    step1.forEach((k) => {
-      if (unitTable[k] < 0 || !homes[k].includes(unitTable[k])) return;
-      const ids = new Set(homes[k].flatMap((t) => groupsV[t].map((x) => x.id)));
-      for (const i of units[k]) if (matchesTable(i, unitTable[k])) allowedTables.set(guests[i].id, ids);
-    });
+    for (const [tid, arr] of Object.entries(seating)) {
+      const t = tableIndexOf.get(tid);
+      if (t === undefined || !tagsOfTable[t].size) continue;
+      for (const gid of arr) {
+        const i = gid ? gIndex.get(gid) : undefined;
+        if (i === undefined || !matchesTable(i, t)) continue;
+        allowedTables.set(guests[i].id, new Set(groupsV.flatMap((g, k) => (matchesTable(i, k) ? g.map((x) => x.id) : []))));
+      }
+    }
+    // in "improve" mode everyone already seated may move too (except pinned guests and locked tables)
     const fixed = new Set<Id>();
-    for (let i = 0; i < N; i++) if (!movable(i)) fixed.add(guests[i].id);
+    for (let i = 0; i < N; i++) if (opt.mode === 'improve' ? guests[i].pinned || fixedElsewhere[i] : !movable(i)) fixed.add(guests[i].id);
     const apartIds = new Set<string>();
     for (let a = 0; a < N; a++)
       for (let b = a + 1; b < N; b++)
@@ -239,10 +261,41 @@ export function autoSeat(p: Project, opt: AutoSeatOptions): AutoSeatResult {
           apartIds.add(x < y ? x + '|' + y : y + '|' + x);
         }
     const ctx = happinessContext(p, managed, guests);
-    finalSeating = improveSeating(p, seating, ctx, { tables: managed, fixed, allowed: allowedTables, apart: apartIds }).seating;
+    finalSeating = improveSeating(p, seating, ctx, { tables: managed, fixed, allowed: allowedTables, apart: apartIds, ...(opt.mode === 'improve' ? { moveCost: { table: 2, seat: 0.5 } } : {}) }).seating;
     after = happinessOf(p, finalSeating).total;
   }
-  return { seating: finalSeating, placed: placedSet.size, unplaced, warnings, tagMatched, tagWanted, before: Math.round(before), after: Math.round(after) };
+  // who moved, compared with the seating before this run
+  const where = (seat: Project['seating']) => {
+    const m = new Map<Id, { t: Id; s: number }>();
+    for (const [t, arr] of Object.entries(seat)) arr.forEach((g, s) => g && m.set(g, { t, s }));
+    return m;
+  };
+  const was = where(p.seating),
+    now = where(finalSeating);
+  const moves: AutoSeatResult['moves'] = [];
+  for (const [g, to] of now) {
+    const from = was.get(g);
+    if (!from || from.t !== to.t || from.s !== to.s) moves.push({ guestId: g, from: from?.t, to: to.t, sameTable: from?.t === to.t });
+  }
+  // table-tag coverage over the whole result: of guests who have a table tagged for them, how many sit at one
+  let tagWantedAll = 0,
+    tagMatchedAll = 0;
+  {
+    const tIdx = new Map<Id, number>();
+    groupsV.forEach((g, t) => g.forEach((x) => tIdx.set(x.id, t)));
+    for (let i = 0; i < N; i++) {
+      if (!groupsV.some((_, t) => tagsOfTable[t].size && matchesTable(i, t))) continue;
+      tagWantedAll++;
+      const at = now.get(guests[i].id);
+      const t = at ? tIdx.get(at.t) : undefined;
+      if (t !== undefined && tagsOfTable[t].size && matchesTable(i, t)) tagMatchedAll++;
+    }
+  }
+  // everyone counted as placed is seated in the final result
+  const placed = guests.filter((g) => now.has(g.id)).length;
+  void tagMatched;
+  void tagWanted;
+  return { seating: finalSeating, placed, unplaced, warnings, tagMatched: tagMatchedAll, tagWanted: tagWantedAll, before: Math.round(opt.mode === 'improve' ? happinessOf(p).total : before), after: Math.round(after), moves };
 }
 
 /** Order a unit's members so the strongest pairs (e.g. "next to") are adjacent. */

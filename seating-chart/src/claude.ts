@@ -5,7 +5,7 @@
  */
 import type { Bond, Id, Project, SeatRule } from './types';
 import { BONDS, SEAT_RULES } from './relations';
-import { DEFAULT_RULES, SLIDERS, rulesOf, type SeatingRules } from './rules';
+import { POINT_KINDS, POINT_LABEL, pointsOf, rulesOf, type PointKind, type PointRow } from './rules';
 import { tableName } from './store';
 import { analyse, groupTags } from './scoring';
 
@@ -63,25 +63,19 @@ function roster(p: Project) {
   const ties = p.relations
     .filter((r) => gid.has(r.a) && gid.has(r.b))
     .map((r) => `${gid.get(r.a)} ${r.kind}${r.seat ? '+' + r.seat : ''}${r.contexts?.length ? ` (${r.contexts.join('; ')})` : ''} ${gid.get(r.b)}`);
-  const tables = p.tables.map((t) => `${tid.get(t.id)} | ${tableName(t)} | ${t.seats} seats${t.area ? ` | area: ${t.area}` : ''}${t.reservedFor ? ` | reserved for ${t.reservedFor}` : ''}`);
+  const tables = p.tables.map((t) => `${tid.get(t.id)} | ${tableName(t)} | ${t.seats} seats${t.area ? ` | area: ${t.area}` : ''}${t.reservedFor ? ` | table tags: ${t.reservedFor}` : ''}`);
   return { gid, back, tid, tback, lines, ties, tables };
 }
 
-const RULE_DOC = SLIDERS.flatMap((s) => s.items)
-  .map((i) => `- ${i.key} (${i.min}…${i.max}): ${i.label}. ${i.help}`)
-  .concat([
-    '- household ("adjacent" | "table" | "soft"): keep households side by side / at the same table / only prefer it.',
-    '- apartHard (true|false): "never same table" ties are absolute.',
-    '- balance ("even" | "full"): spread guests evenly, or fill tables and leave spares empty.',
-    '- neighbours (true|false): order chairs so the most connected guests sit side by side.',
-    '- couplesSideBySide (true|false): couples and "next to" pairs get two adjacent chairs on the same side of a table.',
-    '- specificGroups (true|false): small groups count for more than big catch-all groups.',
-  ])
-  .join('\n');
+const COLS: (keyof PointRow)[] = ['next', 'across', 'same', 'row'];
+const POINTS_DOC = `Happiness points a guest earns for someone near them, by relationship and distance
+(next = adjacent chair, across = facing across the table, same = same table, row = the next table in a pushed-together row).
+Relationship kinds: ${POINT_KINDS.map((k) => `${k} (${POINT_LABEL[k]})`).join(', ')}. "tag" is two guests sharing a social group.`;
 
 export interface Proposal {
   summary: string;
-  rules: Partial<SeatingRules>;
+  /** Changes to the happiness points table */
+  points: { kind: PointKind; col: keyof PointRow; from: number; to: number }[];
   ties: { a: Id; b: Id; kind: Bond; seat?: SeatRule; contexts?: string[]; why: string; aName: string; bName: string }[];
   tags: { guest: Id; name: string; add: string }[];
   reserve: { table: Id; name: string; reservedFor: string }[];
@@ -93,7 +87,7 @@ export async function proposeFromIntent(p: Project, intent: string, signal?: Abo
   const sample = await getSample();
   if (!sample) throw { code: 'unavailable' };
   const r = roster(p);
-  const cur = rulesOf(p.settings);
+  const cur = pointsOf(rulesOf(p.settings));
   const prompt = `You help a couple plan the seating for their wedding reception. A separate optimiser assigns seats; your job is to translate their wishes into its settings. Do not assign seats yourself.
 
 THEIR WISHES:
@@ -104,7 +98,7 @@ PARTNERS: ${p.settings.partner1} and ${p.settings.partner2} (the "side" column s
 GUESTS (id | name | tags | side | household | child | current table):
 ${r.lines.join('\n')}
 
-TABLES (id | name | seats | area | reservation):
+TABLES (id | name | seats | area | table tags):
 ${r.tables.join('\n')}
 
 EXISTING TIES (a relationship[+seating rule] (how they know each other) b): ${r.ties.join(', ') || 'none'}
@@ -112,26 +106,26 @@ Relationships: partner (a couple; seated side by side), family, friend, introduc
 Optional seating rule on a tie: beside = adjacent chairs; together = same table; apart = never the same table.
 Context = how they know each other or where they work (e.g. "Fire Island", "Google"); contexts also become guest tags.
 
-CURRENT RULE WEIGHTS: ${JSON.stringify(cur)}
-RULES YOU CAN CHANGE:
-${RULE_DOC}
+TABLE TAGS (a table is for guests with any of these tags; this is a hard rule): ${p.tables.filter((t) => t.reservedFor.trim()).map((t) => `${r.tid.get(t.id)} ${t.reservedFor}`).join('; ') || 'none'}
+
+CURRENT HAPPINESS POINTS: ${JSON.stringify(cur)}
+${POINTS_DOC}
 
 Reply with only JSON in exactly this shape (omit nothing; use [] or {} when empty):
-{"summary":"2-3 plain sentences on what you changed and why","rules":{ only the keys you change },"ties":[{"a":"g12","b":"g40","kind":"friend","seat":"beside","context":"Fire Island","why":"short reason"}],"tags":[{"guest":"g7","add":"Tag name"}],"reserve":[{"table":"t3","reservedFor":"Tag name or Kids"}],"questions":["only if something important is ambiguous, e.g. a name that matches two guests"]}
-Use only ids listed above. Prefer rule changes and tags for broad wishes ("mix the families", "college friends together"); add ties only for specific people they name; \"seat\" and \"context\" are optional. Never invent guests.`;
+{"summary":"2-3 plain sentences on what you changed and why","points":{"friend":{"next":12}} (only the cells you change),"ties":[{"a":"g12","b":"g40","kind":"friend","seat":"beside","context":"Fire Island","why":"short reason"}],"tags":[{"guest":"g7","add":"Tag name"}],"reserve":[{"table":"t3","reservedFor":"Tag A, Tag B"}] (table tags; replaces that table's tags),"questions":["only if something important is ambiguous, e.g. a name that matches two guests"]}
+Use only ids listed above. Prefer table tags, guest tags and point changes for broad wishes ("mix the families", "college friends together"); add ties only for specific people they name; \"seat\" and \"context\" are optional. Never invent guests.`;
   const raw = await sample.json<Record<string, unknown>>(prompt, { signal, cache: false, onText: onText ? ({ text }: { text: string }) => onText(text) : undefined });
   const byId = new Map(p.guests.map((g) => [g.id, g]));
-  const out: Proposal = { summary: String(raw.summary ?? ''), rules: {}, ties: [], tags: [], reserve: [], questions: [] };
-  const rules = (raw.rules ?? {}) as Record<string, unknown>;
-  for (const [k, v] of Object.entries(rules)) {
-    if (!(k in DEFAULT_RULES)) continue;
-    const d = DEFAULT_RULES[k as keyof SeatingRules];
-    if (typeof d === 'number' && typeof v === 'number' && Number.isFinite(v)) {
-      const sl = SLIDERS.flatMap((s) => s.items).find((i) => i.key === k);
-      (out.rules as Record<string, unknown>)[k] = sl ? Math.max(sl.min, Math.min(sl.max, v)) : v;
-    } else if (typeof d === 'boolean' && typeof v === 'boolean') (out.rules as Record<string, unknown>)[k] = v;
-    else if (k === 'household' && ['adjacent', 'table', 'soft'].includes(String(v))) out.rules.household = v as SeatingRules['household'];
-    else if (k === 'balance' && ['even', 'full'].includes(String(v))) out.rules.balance = v as SeatingRules['balance'];
+  const out: Proposal = { summary: String(raw.summary ?? ''), points: [], ties: [], tags: [], reserve: [], questions: [] };
+  const raw_points = (raw.points ?? {}) as Record<string, Record<string, unknown>>;
+  for (const [k, row] of Object.entries(raw_points)) {
+    if (!POINT_KINDS.includes(k as PointKind) || !row || typeof row !== 'object') continue;
+    for (const [c, v] of Object.entries(row)) {
+      if (!COLS.includes(c as keyof PointRow) || typeof v !== 'number' || !Number.isFinite(v)) continue;
+      const to = Math.max(-100, Math.min(100, Math.round(v)));
+      const from = cur[k as PointKind][c as keyof PointRow];
+      if (to !== from) out.points.push({ kind: k as PointKind, col: c as keyof PointRow, from, to });
+    }
   }
   for (const t of (raw.ties as { a: string; b: string; kind: string; seat?: string; context?: string; why?: string }[]) ?? []) {
     const a = r.back.get(t.a),

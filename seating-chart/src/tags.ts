@@ -28,7 +28,6 @@ export function renameTag(from: string, to: string) {
       n++;
     }
     for (const t of d.tables) if (tableTags(t).some((x) => lc(x) === lc(from))) t.reservedFor = joinTags(tableTags(t).map((x) => (lc(x) === lc(from) ? name : x)));
-    for (const pl of d.settings.placements ?? []) if (pl.group === lc(from)) pl.group = lc(name);
     for (const r of d.relations) if (r.contexts?.some((c) => lc(c) === lc(from))) r.contexts = [...new Map(r.contexts.map((c) => (lc(c) === lc(from) ? name : c)).map((c) => [lc(c), c])).values()];
     const colors = d.settings.tagColors;
     if (colors?.[lc(from)] && lc(from) !== lc(name)) {
@@ -51,7 +50,6 @@ export function deleteTag(tag: string) {
       }
     }
     for (const t of d.tables) if (tableTags(t).some((x) => lc(x) === lc(tag))) t.reservedFor = joinTags(tableTags(t).filter((x) => lc(x) !== lc(tag)));
-    if (d.settings.placements) d.settings.placements = d.settings.placements.filter((pl) => pl.group !== lc(tag));
     for (const r of d.relations) if (r.contexts?.some((c) => lc(c) === lc(tag))) {
       r.contexts = r.contexts.filter((c) => lc(c) !== lc(tag));
       if (!r.contexts.length) delete r.contexts;

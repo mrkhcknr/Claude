@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 import { happinessOf } from './happiness';
-import type { Bond, Guest, Id, Project, Relation, RoomElement, SeatRule, Rsvp, Side, Table, TableShape, ZoneKind } from './types';
+import type { Bond, Guest, Id, Project, Relation, RoomElement, SeatRule, Rsvp, Side, Table, TableShape, ZoneKind, Selection } from './types';
 import {
   alignTables,
   clearTables,
@@ -65,8 +65,50 @@ export function Inspector({ analysis, onAutoSeat, onSettings }: { analysis: Anal
     const gs = project.guests.filter((g) => selection.ids.includes(g.id));
     body = gs.length === 1 ? <GuestInspector g={gs[0]} analysis={analysis} /> : gs.length ? <MultiGuest guests={gs} /> : null;
   }
+  // ---- back navigation: remember what was open before, so Back retraces guest → partner → table…
+  const [history, setHistory] = useState<Selection[]>([]);
+  const goingBack = useRef(false);
+  const prev = useRef<Selection>(null);
+  useEffect(() => {
+    const p0 = prev.current;
+    if (!selection) setHistory([]);
+    else if (!goingBack.current && p0 && JSON.stringify(p0) !== JSON.stringify(selection)) setHistory((h) => [...h.slice(-19), p0]);
+    goingBack.current = false;
+    prev.current = selection;
+  }, [selection]);
+  const back = () => {
+    goingBack.current = true;
+    const last = history[history.length - 1];
+    setHistory((h) => h.slice(0, -1));
+    setSelection(last ?? null);
+  };
+  const what =
+    selection?.type === 'guest'
+      ? selection.ids.length > 1
+        ? `${selection.ids.length} guests`
+        : 'Guest'
+      : selection?.type === 'table'
+        ? selection.ids.length > 1
+          ? `${selection.ids.length} tables`
+          : 'Table'
+        : selection?.type === 'element'
+          ? 'Room item'
+          : selection?.type === 'ref'
+            ? 'Venue plan'
+            : '';
   return (
     <aside className="panel right" aria-label="Details">
+      {selection && body && (
+        <div className="insp-nav">
+          <button className="btn ghost sm" onClick={back}>
+            <Icon name="chevronLeft" size="sm" /> {history.length ? 'Back' : 'Overview'}
+          </button>
+          <span className="muted">{what}</span>
+          <button className="icon-btn sm show-md" aria-label="Close details" onClick={() => window.dispatchEvent(new Event('app:close-details'))}>
+            <Icon name="x" size="sm" />
+          </button>
+        </div>
+      )}
       <div className="panel-body">{body ?? <Overview analysis={analysis} onAutoSeat={onAutoSeat} onSettings={onSettings} />}</div>
     </aside>
   );
@@ -308,6 +350,16 @@ function TableInspector({ t, analysis }: { t: Table; analysis: Analysis }) {
           <span>Area</span>
           <TextField value={t.area ?? ''} placeholder="e.g. Top room" onCommit={(v) => set({ area: v.trim() || undefined })} list="area-list" />
           <AreaList />
+          {t.area?.trim() && (
+            <button
+              className="btn ghost sm"
+              style={{ justifySelf: 'start' }}
+              title="Select every table in this area, e.g. to tag them all at once"
+              onClick={() => setSelection({ type: 'table', ids: project.tables.filter((x) => x.area?.trim().toLowerCase() === t.area!.trim().toLowerCase()).map((x) => x.id) })}
+            >
+              Select all tables in {t.area}
+            </button>
+          )}
         </label>
         <div className="field">
           <span>Table tags</span>

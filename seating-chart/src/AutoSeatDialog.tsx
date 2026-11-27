@@ -1,13 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { autoSeat, type AutoSeatOptions, type AutoSeatResult } from './autoSeat';
 import { getState, seatAtTable, setRelation, swapGuests, tableName, toast, update, updateTables, useStore } from './store';
-import { SLIDERS, DEFAULT_POINTS, POINT_KINDS, POINT_LABEL, pointsOf, rulesOf, type PointKind, type PointRow, type SeatingRules } from './rules';
+import { DEFAULT_POINTS, POINT_KINDS, POINT_LABEL, pointsOf, rulesOf, type PointKind, type PointRow, type SeatingRules } from './rules';
 import { happinessOf } from './happiness';
 import { errText, getSample, proposeFromIntent, reviewSeating, type Proposal, type Suggestion } from './claude';
 import { describeTie } from './relations';
-import { allTags } from './filters';
-import { groupLabel, inGroup, targetHas, targetLabel } from './scoring';
-import { uid } from './util';
 import { Dialog, Icon } from './ui';
 
 type Tab = 'seat' | 'rules' | 'claude';
@@ -40,7 +37,9 @@ export function AutoSeatDialog({ open, onClose, initialTab = 'seat' }: { open: b
 // ---------------- run ----------------
 function SeatTab({ onDone }: { onDone: () => void }) {
   const project = useStore((s) => s.project);
-  const [opt, setOpt] = useState<AutoSeatOptions>({ mode: 'keep', includePending: false });
+  const startSeated = Object.values(project.seating).flat().some(Boolean);
+  // with a seating in place, the useful default is to fine-tune it; otherwise start fresh
+  const [opt, setOpt] = useState<AutoSeatOptions>({ mode: startSeated ? 'improve' : 'reseat', includePending: false });
   const [res, setRes] = useState<AutoSeatResult | null>(null);
   const [running, setRunning] = useState(false);
   const seatedNow = Object.values(project.seating).flat().filter(Boolean).length;
@@ -68,10 +67,13 @@ function SeatTab({ onDone }: { onDone: () => void }) {
     <>
       <ol className="steps" style={{ margin: 0, paddingLeft: 18, color: 'var(--ink-2)' }}>
         <li>
-          <b>Table tags first.</b> Guests whose tags match a table's tags sit there, households together. If a tag has more guests than seats, the rest go to step 2.
+          <b>Table tags.</b> Guests whose tags match a table's tags sit there, households together.
         </li>
         <li>
-          <b>Then connections.</b> Everyone else goes to the table where they have the most relationships or household members, then next to people who share a tag, then any free seat.
+          <b>Connections.</b> Everyone else goes where they have the most relationships, household members or shared tags.
+        </li>
+        <li>
+          <b>Happiness.</b> Guests and couples swap chairs while that raises total happiness points (see Rules).
         </li>
       </ol>
       <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
@@ -79,24 +81,33 @@ function SeatTab({ onDone }: { onDone: () => void }) {
       </p>
       <div className="field">
         <span>Who to place</span>
-        <div className="seg">
+        <div className="seg wrap">
+          <button aria-pressed={opt.mode === 'improve'} onClick={() => setOpt({ ...opt, mode: 'improve' })}>
+            Improve current seating
+          </button>
           <button aria-pressed={opt.mode === 'keep'} onClick={() => setOpt({ ...opt, mode: 'keep' })}>
-            Only unseated
+            Seat new guests only
           </button>
           <button aria-pressed={opt.mode === 'reseat'} onClick={() => setOpt({ ...opt, mode: 'reseat' })}>
-            Re-seat everyone
+            Start over
           </button>
         </div>
+        <span className="muted" style={{ fontSize: 12.5, textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
+          {opt.mode === 'improve'
+            ? 'Keeps your seating and only makes swaps that raise happiness (after seating anyone new). Best after changing the social graph.'
+            : opt.mode === 'keep'
+              ? 'Seats people without a seat. Nobody already seated moves.'
+              : 'Seats everyone from scratch (pinned guests and locked tables stay).'}
+        </span>
         <span className="muted" style={{ fontSize: 12, textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
           {seatedNow} seated now · {pinned} pinned · {locked} locked tables
         </span>
         {opt.mode === 'keep' && unseatedNow === 0 && (
           <span className="callout warn" style={{ fontSize: 12.5, textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
-            Everyone coming already has a seat, so "Only unseated" won't change anything. Choose "Re-seat everyone" to apply new table tags.
+            Everyone coming already has a seat, so this won't change anything. Choose "Improve current seating" or "Start over".
           </span>
         )}
       </div>
-      <Placements />
       <label className="check">
         <input type="checkbox" checked={opt.includePending} onChange={(e) => setOpt({ ...opt, includePending: e.target.checked })} /> Also seat guests whose RSVP is pending
       </label>
@@ -115,6 +126,7 @@ function SeatTab({ onDone }: { onDone: () => void }) {
             {res.after !== res.before && <span className="muted"> (swapping seats added {(res.after - res.before).toLocaleString()})</span>}
           </span>
           <LeastHappy seating={res.seating} />
+          <MovesList res={res} />
           {res.warnings.map((w, i) => (
             <span key={i}>{w}</span>
           ))}
@@ -279,8 +291,12 @@ function ClaudeTab({ goSeat, goRules }: { goSeat: () => void; goRules: () => voi
     if (!prop) return;
     const R = rulesOf(project.settings);
     update((d) => {
-      const ruleKeys = Object.keys(prop.rules).filter((k) => !skip.has('rule:' + k));
-      if (ruleKeys.length) d.settings.rules = { ...(d.settings.rules ?? {}), ...Object.fromEntries(ruleKeys.map((k) => [k, (prop.rules as Record<string, unknown>)[k]])) };
+      prop.points.forEach((c, i) => {
+        if (skip.has('pt:' + i)) return;
+        const r = (d.settings.rules ??= {});
+        const P = pointsOf(r);
+        r.points = { ...(r.points ?? {}), [c.kind]: { ...P[c.kind], [c.col]: c.to } };
+      });
       prop.tags.forEach((t, i) => {
         if (skip.has('tag:' + i)) return;
         const g = d.guests.find((x) => x.id === t.guest);
@@ -308,8 +324,6 @@ function ClaudeTab({ goSeat, goRules }: { goSeat: () => void; goRules: () => voi
       }}
     />
   );
-  const R = rulesOf(project.settings);
-  const label = (k: string) => SLIDERS.flatMap((s) => s.items).find((i) => i.key === k)?.label ?? k;
 
   if (avail === false)
     return (
@@ -321,7 +335,7 @@ function ClaudeTab({ goSeat, goRules }: { goSeat: () => void; goRules: () => voi
   return (
     <>
       <p style={{ margin: 0, color: 'var(--ink-2)' }}>
-        Describe how you want people seated. Claude turns it into rules, ties and tags for you to approve; auto-seat then does the placing. Claude sees guest names, tags, sides and the current
+        Describe how you want people seated. Claude turns it into table tags, guest tags, relationships and point changes for you to approve; auto-seat then does the placing. Claude sees guest names, tags, sides and the current
         seating, never contact details.
       </p>
       <textarea className="input" rows={3} value={intent} onChange={(e) => setIntent(e.target.value)} placeholder="e.g. Keep Mark’s high-school friends together and mix the families elsewhere." />
@@ -358,12 +372,12 @@ function ClaudeTab({ goSeat, goRules }: { goSeat: () => void; goRules: () => voi
               ))}
             </div>
           )}
-          {Object.keys(prop.rules).length > 0 && (
+          {prop.points.length > 0 && (
             <>
-              <span className="label">Rule changes</span>
-              {Object.entries(prop.rules).map(([k, v]) => (
-                <label key={k} className="check">
-                  {tick('rule:' + k)} {label(k)}: <span className="muted">{String((R as unknown as Record<string, unknown>)[k])}</span> → <b>{String(v)}</b>
+              <span className="label">Happiness points</span>
+              {prop.points.map((c, i) => (
+                <label key={i} className="check">
+                  {tick('pt:' + i)} {POINT_LABEL[c.kind]}, {COL_LABEL[c.col]}: <span className="muted">{c.from}</span> → <b>{c.to}</b>
                 </label>
               ))}
             </>
@@ -443,75 +457,45 @@ function ClaudeTab({ goSeat, goRules }: { goSeat: () => void; goRules: () => voi
   );
 }
 
-// ---------------- where groups sit ----------------
-function Placements() {
+
+const COL_LABEL: Record<keyof PointRow, string> = { next: 'next to', across: 'across from', same: 'same table', row: 'next table in row' };
+
+/** Who moved in this run, so changes are easy to review before applying. */
+function MovesList({ res }: { res: AutoSeatResult }) {
   const project = useStore((s) => s.project);
-  const list = project.settings.placements ?? [];
-  const [group, setGroup] = useState('');
-  const [target, setTarget] = useState('');
-  const tags = allTags(project);
-  const areas = [...new Set(project.tables.map((t) => t.area?.trim()).filter(Boolean))] as string[];
-  const s = project.settings;
-  const groups: [string, string][] = [...tags.map((t) => [t.label.toLowerCase(), t.label] as [string, string]), ['partner1', `${s.partner1}'s side`], ['partner2', `${s.partner2}'s side`], ['kids', 'Kids']];
-  const attending = project.guests.filter((g) => g.rsvp !== 'no');
-  const add = () => {
-    if (!group || !target) return;
-    update((d) => void (d.settings.placements = [...(d.settings.placements ?? []), { id: uid(), group, target }]));
-    setGroup('');
-    setTarget('');
+  const [open, setOpen] = useState(false);
+  if (!res.moves.length) return <span>No seats changed.</span>;
+  const byId = new Map(project.guests.map((g) => [g.id, g]));
+  const tname = (id?: string) => {
+    const t = project.tables.find((x) => x.id === id);
+    return t ? tableName(t) : 'no seat';
   };
-  const remove = (id: string) => update((d) => void (d.settings.placements = (d.settings.placements ?? []).filter((p) => p.id !== id)));
+  const newly = res.moves.filter((m) => !m.from).length;
+  const within = res.moves.filter((m) => m.sameTable).length;
+  const between = res.moves.length - newly - within;
   return (
-    <div className="field placements">
-      <span>Where groups sit</span>
-      {list.map((pl) => {
-        const n = attending.filter((g) => inGroup(g, pl.group)).length;
-        const seats = project.tables.filter((t) => targetHas(pl.target, t)).reduce((a, t) => a + t.seats, 0);
-        return (
-          <div key={pl.id} className="placement">
-            <b>{groupLabel(pl.group, project)}</b> <span className="muted">({n})</span> → <b>{targetLabel(pl.target, project)}</b>{' '}
-            <span className={`muted ${n > seats ? 'warn-text' : ''}`}>({seats} seats)</span>
-            <button className="icon-btn sm" aria-label="Remove" onClick={() => remove(pl.id)}>
-              <Icon name="x" size="sm" />
-            </button>
-          </div>
-        );
-      })}
-      <div className="row" style={{ gap: 6 }}>
-        <select className="input" value={group} onChange={(e) => setGroup(e.target.value)} aria-label="Group">
-          <option value="">Group…</option>
-          {groups.map(([k, l]) => (
-            <option key={k} value={k}>
-              {l}
-            </option>
-          ))}
-        </select>
-        <span className="muted">sits at</span>
-        <select className="input" value={target} onChange={(e) => setTarget(e.target.value)} aria-label="Table or area">
-          <option value="">Table or area…</option>
-          {areas.length > 0 && (
-            <optgroup label="Areas">
-              {areas.map((a) => (
-                <option key={a} value={'area:' + a}>
-                  {a}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          <optgroup label="Tables">
-            {project.tables.map((t) => (
-              <option key={t.id} value={'table:' + t.id}>
-                {t.label}
-                {tableName(t) !== t.label ? ` · ${tableName(t)}` : ''}
-              </option>
-            ))}
-          </optgroup>
-        </select>
-        <button className="btn sm" onClick={add} disabled={!group || !target}>
-          Add
+    <div style={{ display: 'grid', gap: 4 }}>
+      <span>
+        {between > 0 && `${between} guest${between === 1 ? '' : 's'} change table`}
+        {between > 0 && (within > 0 || newly > 0) && ' · '}
+        {within > 0 && `${within} change seat at the same table`}
+        {within > 0 && newly > 0 && ' · '}
+        {newly > 0 && `${newly} newly seated`}{' '}
+        <button className="btn ghost sm" onClick={() => setOpen(!open)}>
+          {open ? 'Hide' : 'Show'} changes
         </button>
-      </div>
-      {!areas.length && <span className="muted small">Give tables an Area (in the table panel) to assign groups to a whole room.</span>}
+      </span>
+      {open && (
+        <ul className="moves-list">
+          {res.moves
+            .filter((m) => !m.sameTable)
+            .map((m) => (
+              <li key={m.guestId}>
+                <b>{byId.get(m.guestId)?.name}</b>: {m.from ? tname(m.from) : 'unseated'} → {tname(m.to)}
+              </li>
+            ))}
+        </ul>
+      )}
     </div>
   );
 }

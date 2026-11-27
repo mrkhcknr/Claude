@@ -17,6 +17,8 @@ export interface ImproveOptions {
   apart: Set<string>;
   iterations?: number;
   seed?: number;
+  /** "Improve current seating": moving someone costs this many points (table change / seat change), so only clearly better swaps happen */
+  moveCost?: { table: number; seat: number };
 }
 
 /** Small deterministic random generator, so the same inputs give the same seating. */
@@ -30,7 +32,21 @@ function mulberry32(a: number) {
   };
 }
 
+/**
+ * Run the search a few times from the same start (different random orders) and keep the best result.
+ * Each run starts adventurous, sometimes accepting a slightly worse swap to escape dead ends, and
+ * ends strict, so the result is a seating no single swap can improve.
+ */
 export function improveSeating(p: Project, seating: Project['seating'], ctx: HappinessContext, o: ImproveOptions) {
+  let best: { seating: Project['seating']; gain: number } | null = null;
+  for (const seed of [o.seed ?? 7, 101, 2027]) {
+    const r = improveOnce(p, seating, ctx, { ...o, seed });
+    if (!best || r.gain > best.gain) best = r;
+  }
+  return best!;
+}
+
+function improveOnce(p: Project, seating: Project['seating'], ctx: HappinessContext, o: ImproveOptions) {
   const out: Project['seating'] = structuredClone(seating);
   const { seatOf, occupant } = seatMaps(out);
   const tableOfSeat = (s: string) => s.slice(0, s.lastIndexOf(':'));
@@ -68,9 +84,18 @@ export function improveSeating(p: Project, seating: Project['seating'], ctx: Hap
     }
     return set;
   };
+  const origSeat = new Map(seatOf);
+  const cost = o.moveCost;
   const sumH = (gs: Set<Id>) => {
     let s = 0;
-    for (const g of gs) s += guestHappiness(ctx, g, seatOf, occupant).points;
+    for (const g of gs) {
+      s += guestHappiness(ctx, g, seatOf, occupant).points;
+      if (cost) {
+        const was = origSeat.get(g),
+          now = seatOf.get(g);
+        if (was && now && was !== now) s -= tableOfSeat(was) !== tableOfSeat(now) ? cost.table : cost.seat;
+      }
+    }
     return s;
   };
   const okAt = (g: Id, seat: string) => {
@@ -99,9 +124,15 @@ export function improveSeating(p: Project, seating: Project['seating'], ctx: Hap
   };
 
   const rnd = mulberry32(o.seed ?? 7);
-  const iters = o.iterations ?? Math.min(60000, 400 * movers.length);
-  let gain = 0;
-  for (let it = 0; it < iters; it++) {
+  const iters = o.iterations ?? Math.min(40000, 300 * movers.length);
+  let gain = 0,
+    bestGain = 0;
+  // start from the input arrangement, so a run that finds nothing better changes nothing
+  let bestSnap: Map<string, Id> = new Map(occupant);
+  // temperature: how willing to accept a worse swap (falls from 2 points to almost 0)
+  let temp = 2;
+  const cool = Math.pow(0.01 / temp, 1 / iters);
+  for (let it = 0; it < iters; it++, temp *= cool) {
     const a = movers[(rnd() * movers.length) | 0];
     const aSeat = seatOf.get(a)!;
     const partner = partnerOf.get(a);
@@ -152,9 +183,19 @@ export function improveSeating(p: Project, seating: Project['seating'], ctx: Hap
     const h0u = sumH(after);
     apply(undo2);
     const h1 = sumH(after);
-    if (h1 - h0u > 1e-9) gain += h1 - h0u;
-    else apply(undo);
+    const d = h1 - h0u;
+    if (d > 1e-9 || (d < 0 && rnd() < Math.exp(d / temp))) {
+      gain += d;
+      if (gain > bestGain + 1e-9) {
+        bestGain = gain;
+        bestSnap = new Map(occupant);
+      }
+    } else apply(undo);
   }
+  // keep the best arrangement seen, not wherever the search ended
+  occupant.clear();
+  for (const [k, v] of bestSnap) occupant.set(k, v);
+  gain = bestGain;
 
   // write back
   for (const t of o.tables) out[t.id] = out[t.id].map((_, i) => occupant.get(seatKey(t.id, i)) ?? null);

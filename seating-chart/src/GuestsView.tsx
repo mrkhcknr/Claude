@@ -245,7 +245,7 @@ export function GuestsView({ analysis }: { analysis: Analysis }) {
                     <td className="name-cell">
                       <span className={`dot side-${g.side || 'none'}`} />
                       <TextField className="cell-input strong" value={g.name} onCommit={(v) => v.trim() && updateGuests([g.id], { name: v.trim() })} />
-                      <button className="icon-btn sm" title="Open details" onClick={() => setSelection({ type: 'guest', ids: [g.id] })}>
+                      <button className="icon-btn sm" title="Open details" aria-label={`Open ${g.name}'s details`} onClick={() => (setSelection({ type: 'guest', ids: [g.id] }), window.dispatchEvent(new Event('app:show-details')))}>
                         <Icon name="chevron" size="sm" />
                       </button>
                     </td>

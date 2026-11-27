@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { SavedLayoutsDialog } from './SavedLayouts';
 import { ResetDialog } from './ResetDialog';
 import { deleteSelection, duplicateSelection, getState, redo, setSelection, setTool, setView, undo, update, updateTables, useStore } from './store';
@@ -28,6 +28,8 @@ export function App() {
   const [dlg, setDlg] = useState<'' | 'import' | 'cross' | 'auto' | 'rules' | 'claude' | 'settings' | 'open' | 'tags' | 'layouts' | 'reset'>('');
   const selection = useStore((s) => s.selection);
   const [mpane, setMpane] = useState<'guests' | 'stage' | 'details'>('stage');
+  /** where to return when details are closed on a phone */
+  const lastPane = useRef<'guests' | 'stage'>('stage');
   // analysis is shared by every panel; recomputed when the project changes
   const analysis = useMemo(() => analyse(project), [project]);
 
@@ -46,12 +48,18 @@ export function App() {
       setMpane('stage');
     };
     window.addEventListener('app:pick-seat', pickSeat);
+    const showDetails = () => setMpane((m) => (m === 'details' ? m : ((lastPane.current = m), 'details')));
+    const closeDetails = () => setMpane(lastPane.current);
+    window.addEventListener('app:show-details', showDetails);
+    window.addEventListener('app:close-details', closeDetails);
     window.addEventListener('app:open-layout', open);
     window.addEventListener('app:tags', tags);
     window.addEventListener('app:reset', reset);
     return () => {
       window.removeEventListener('app:reset', reset);
       window.removeEventListener('app:pick-seat', pickSeat);
+      window.removeEventListener('app:show-details', showDetails);
+      window.removeEventListener('app:close-details', closeDetails);
       window.removeEventListener('app:open-layout', open);
       window.removeEventListener('app:tags', tags);
     };
@@ -242,14 +250,14 @@ export function App() {
       <Inspector analysis={analysis} onAutoSeat={(tab) => setDlg(tab ?? 'auto')} onSettings={() => setDlg('settings')} />
 
       <nav className="mobile-tabs" aria-label="Panels">
-        <button className="btn ghost" aria-pressed={mpane === 'guests'} onClick={() => setMpane('guests')}>
+        <button className="btn ghost" aria-pressed={mpane === 'guests'} onClick={() => ((lastPane.current = 'guests'), setMpane('guests'))}>
           <Icon name="users" size="sm" /> Guests
         </button>
-        <button className="btn ghost" aria-pressed={mpane === 'stage'} onClick={() => setMpane('stage')}>
+        <button className="btn ghost" aria-pressed={mpane === 'stage'} onClick={() => ((lastPane.current = 'stage'), setMpane('stage'))}>
           <Icon name="plan" size="sm" /> {view === 'plan' ? 'Plan' : view === 'network' ? 'Graph' : view === 'guests' ? 'Table' : 'Lists'}
         </button>
         <button className="btn ghost" aria-pressed={mpane === 'details'} onClick={() => setMpane('details')}>
-          <Icon name="info" size="sm" /> Details
+          <Icon name="info" size="sm" /> Details{selection && mpane !== 'details' && <span className="tab-dot" aria-label="(something selected)" />}
         </button>
       </nav>
 

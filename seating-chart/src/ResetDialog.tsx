@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { saveLayout, update, useStore } from './store';
 import { Dialog, ask } from './ui';
 
-type Part = 'seats' | 'relations' | 'placements' | 'rules' | 'guests' | 'imports' | 'floor' | 'saved';
+type Part = 'seats' | 'relations' | 'rules' | 'guests' | 'imports' | 'floor' | 'saved';
 
 /**
  * Clear only the parts of the chart you choose. Seat assignments are the only thing ticked by default;
@@ -38,8 +38,7 @@ export function ResetDialog({ open, onClose }: { open: boolean; onClose: () => v
   const parts: { k: Part; label: string; detail: string; danger?: boolean }[] = [
     { k: 'seats', label: 'Seat assignments', detail: `${seated} guests seated now. Everyone goes back to unseated.` },
     { k: 'relations', label: 'Relationships', detail: `${p.relations.length} relationship${p.relations.length === 1 ? "" : "s"} drawn in the social graph.` },
-    { k: 'placements', label: 'Group placements', detail: `${p.settings.placements?.length ?? 0} "where groups sit" assignments.` },
-    { k: 'rules', label: 'Seating rules', detail: rulesChanged ? `${rulesChanged} rules changed from the defaults.` : 'Already at the defaults.' },
+    { k: 'rules', label: 'Seating rules & points', detail: rulesChanged ? 'Back to the default rules and happiness points.' : 'Already at the defaults.' },
     { k: 'imports', label: 'Import history & discrepancies', detail: `${p.imports?.length ?? 0} imported lists. Clears dismissed discrepancies and list comparisons.` },
     { k: 'guests', label: 'Guest list', detail: `${p.guests.length} guests. Also clears their seats, relationships and import history.`, danger: true },
     { k: 'floor', label: 'Floor plan: tables & room', detail: `${p.tables.length} tables and ${p.elements.length} room items. Also clears seats.`, danger: true },
@@ -62,7 +61,6 @@ export function ResetDialog({ open, onClose }: { open: boolean; onClose: () => v
         for (const t of Object.keys(d.seating)) d.seating[t] = d.seating[t].map((g) => (g && keep.has(g) ? g : null));
       }
       if (on('relations')) d.relations = [];
-      if (on('placements')) delete d.settings.placements;
       if (on('rules')) delete d.settings.rules;
       if (on('imports')) {
         d.imports = [];
