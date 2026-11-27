@@ -860,6 +860,11 @@ function GuestInspector({ g, analysis }: { g: Guest; analysis: Analysis }) {
           <span className="muted">Not linked. Select several guests to make a household.</span>
         )}
       </div>
+      <div className="section show-md">
+        <button className="btn" onClick={() => window.dispatchEvent(new Event('app:pick-seat'))}>
+          <Icon name="plan" size="sm" /> {loc ? 'Move to another seat' : 'Choose a seat on the plan'}
+        </button>
+      </div>
       {loc && <HappinessSection g={g} />}
       <div className="section">
         <h3>
@@ -1215,7 +1220,7 @@ function HappinessSection({ g }: { g: Guest }) {
   const h = useMemo(() => happinessOf(project).byGuest.get(g.id), [project, g.id]);
   const byId = useMemo(() => new Map(project.guests.map((x) => [x.id, x])), [project.guests]);
   if (!h) return null;
-  const where = { next: 'next to', across: 'across from', same: 'at the table with' } as const;
+  const where = { next: 'next to', across: 'across from', same: 'at the table with', row: 'at the next table from' } as const;
   const tagLabel = useMemo(() => new Map(allTags(project).map((t) => [t.label.toLowerCase(), t.label])), [project]);
   const what = (k: string, tag?: string) => (k === 'tag' ? `shares ${tagLabel.get(tag ?? '') ?? tag}` : k);
   return (

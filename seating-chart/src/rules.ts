@@ -48,6 +48,8 @@ export interface PointRow {
   next: number;
   across: number;
   same: number;
+  /** at the next table in a pushed-together row */
+  row: number;
 }
 export const POINT_KINDS: PointKind[] = ['partner', 'family', 'friend', 'introduce', 'tag', 'tension'];
 export const POINT_LABEL: Record<PointKind, string> = {
@@ -59,12 +61,12 @@ export const POINT_LABEL: Record<PointKind, string> = {
   tension: 'Tension',
 };
 export const DEFAULT_POINTS: Record<PointKind, PointRow> = {
-  partner: { next: 50, across: 10, same: 5 },
-  family: { next: 10, across: 8, same: 6 },
-  friend: { next: 10, across: 8, same: 6 },
-  introduce: { next: 12, across: 10, same: 6 },
-  tag: { next: 3, across: 2, same: 1 },
-  tension: { next: -10, across: -10, same: -10 },
+  partner: { next: 50, across: 10, same: 5, row: 0 },
+  family: { next: 10, across: 8, same: 6, row: 2 },
+  friend: { next: 10, across: 8, same: 6, row: 2 },
+  introduce: { next: 12, across: 10, same: 6, row: 0 },
+  tag: { next: 3, across: 2, same: 1, row: 0 },
+  tension: { next: -10, across: -10, same: -10, row: -2 },
 };
 export const pointsOf = (R: Pick<SeatingRules, 'points'>): Record<PointKind, PointRow> =>
   Object.fromEntries(POINT_KINDS.map((k) => [k, { ...DEFAULT_POINTS[k], ...(R.points?.[k] ?? {}) }])) as Record<PointKind, PointRow>;

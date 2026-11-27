@@ -185,13 +185,14 @@ function PointsTable() {
             <th>Next to</th>
             <th>Across from</th>
             <th>Same table</th>
+            <th>Next table in row</th>
           </tr>
         </thead>
         <tbody>
           {POINT_KINDS.map((k) => (
             <tr key={k}>
               <th>{POINT_LABEL[k]}</th>
-              {(['next', 'across', 'same'] as const).map((c) => (
+              {(['next', 'across', 'same', 'row'] as const).map((c) => (
                 <td key={c}>
                   <input className="input num" type="number" step={1} value={P[k][c]} onChange={(e) => set(k, c, +e.target.value || 0)} aria-label={`${POINT_LABEL[k]} ${c}`} />
                 </td>

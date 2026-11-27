@@ -2326,3 +2326,212 @@ select.cell-input.rsvp-pending {
 .intro-box { display: grid; gap: 6px; }
 .intro-list { display: grid; gap: 4px; max-height: 220px; overflow: auto; }
 .intro-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; }
+
+/* ================= phones & tablets ================= */
+.show-sm,
+.show-md {
+  display: none !important;
+}
+.app {
+  height: 100dvh;
+  max-width: 100vw;
+  overflow: hidden;
+}
+.tap-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 68px;
+  translate: -50% 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 6px 6px 14px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--surface);
+  font-size: 13px;
+  box-shadow: var(--shadow-lg);
+  white-space: nowrap;
+  max-width: calc(100% - 24px);
+}
+.tap-hint span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tap-hint .icon-btn {
+  color: inherit;
+}
+.menu-lang {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+}
+
+@media (max-width: 920px) {
+  .show-md {
+    display: inline-flex !important;
+  }
+  .section.show-md {
+    display: block !important;
+  }
+  /* graph: groups & filters open as a sheet over the graph */
+  .net-side[data-open='true'] {
+    display: grid;
+    position: absolute;
+    inset: auto 8px 8px 8px;
+    top: auto;
+    width: auto;
+    max-height: 70%;
+    overflow: auto;
+    z-index: 9;
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+@media (max-width: 640px) {
+  .show-sm {
+    display: inline-flex !important;
+  }
+  div.show-sm {
+    display: flex !important;
+  }
+  .menu-sep.show-sm {
+    display: block !important;
+  }
+  .topbar {
+    gap: 6px;
+    padding-inline: max(10px, env(safe-area-inset-left, 0px)) max(10px, env(safe-area-inset-right, 0px));
+  }
+  .topbar .brand input {
+    display: none;
+  }
+  .topbar .spacer {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .topbar .seg button {
+    padding-inline: 10px;
+  }
+  /* plan & graph toolbars scroll sideways instead of running off-screen */
+  .palette.tools {
+    left: 8px;
+    right: 8px;
+    translate: none;
+    overflow-x: auto;
+    scrollbar-width: none;
+    justify-content: flex-start;
+    -webkit-overflow-scrolling: touch;
+  }
+  .palette.tools::-webkit-scrollbar {
+    display: none;
+  }
+  .palette.tools > * {
+    flex-shrink: 0;
+  }
+  .palette.brush-opts {
+    left: 8px;
+    right: 8px;
+    flex-wrap: wrap;
+  }
+  .palette.brush-opts input.input {
+    width: 100%;
+  }
+  .palette.zoom {
+    right: 8px;
+    bottom: 8px;
+  }
+  /* dialogs fill the screen */
+  dialog.dlg,
+  dialog.dlg.wide {
+    width: 100vw;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    margin: 0;
+    border: 0;
+  }
+  .dlg-head {
+    padding-top: max(14px, env(safe-area-inset-top, 0px));
+  }
+  .dlg-head h2 {
+    font-size: 24px;
+  }
+  .dlg-foot {
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  }
+  .grid2 {
+    grid-template-columns: 1fr;
+  }
+  .points-table .input {
+    width: 52px;
+  }
+  .placements .row {
+    flex-wrap: wrap;
+  }
+  .tap-hint {
+    bottom: 64px;
+  }
+}
+@media (max-width: 480px) {
+  .hide-xs {
+    display: none !important;
+  }
+}
+/* fingers need bigger targets than mouse pointers */
+@media (pointer: coarse) {
+  .icon-btn {
+    min-width: 40px;
+    min-height: 40px;
+  }
+  .icon-btn.sm {
+    min-width: 32px;
+    min-height: 32px;
+  }
+  .seg button,
+  .btn.sm,
+  .chip {
+    min-height: 36px;
+  }
+  .mobile-tabs .btn {
+    min-height: 44px;
+  }
+  input.input,
+  select.input,
+  textarea.input {
+    font-size: 16px; /* stops iOS zooming into fields */
+  }
+}
+@media (max-width: 920px) {
+  /* the full-screen guest table uses the same single column as every other view */
+  .app[data-panels='full'],
+  .app[data-panels='full-detail'] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .guest-grid-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+@media (max-width: 640px) {
+  .placements .row > .input {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+  .placements .row > .muted {
+    display: none;
+  }
+}
+/* tablets hide the full-size header controls (.hide-sm) too, so show their compact versions */
+@media (max-width: 920px) {
+  .show-sm {
+    display: inline-flex !important;
+  }
+  div.show-sm {
+    display: flex !important;
+  }
+  .menu-sep.show-sm {
+    display: block !important;
+  }
+}

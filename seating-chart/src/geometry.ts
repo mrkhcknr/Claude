@@ -419,7 +419,7 @@ export function snapToWall(p: Project, pt: Pt, reach = 2.5): { x: number; y: num
 export const isPointish = (e: RoomElement): e is Column | Opening | Zone => e.kind !== 'wall';
 
 // ---------- proximity between chairs (for happiness points) ----------
-export type Prox = 'next' | 'across' | 'same';
+export type Prox = 'next' | 'across' | 'same' | 'row';
 export const seatKey = (t: string, s: number) => `${t}:${s}`;
 
 /**
@@ -429,7 +429,7 @@ export const seatKey = (t: string, s: number) => `${t}:${s}`;
  */
 export function seatProximity(tables: Table[]): Map<string, Map<string, Prox>> {
   const out = new Map<string, Map<string, Prox>>();
-  const rank: Record<Prox, number> = { next: 3, across: 2, same: 1 };
+  const rank: Record<Prox, number> = { next: 4, across: 3, same: 2, row: 1 };
   const add = (a: string, b: string, p: Prox) => {
     if (a === b) return;
     let m = out.get(a);
@@ -468,6 +468,11 @@ export function seatProximity(tables: Table[]): Map<string, Map<string, Prox>> {
   }
   for (const g of joinedGroups(tables)) {
     const slots = slotsOf(g);
+    // the next table in a pushed-together row
+    for (const a of g)
+      for (const b of g)
+        if (a !== b && joined(a, b))
+          for (let i = 0; i < a.seats; i++) for (let j = 0; j < b.seats; j++) add(seatKey(a.id, i), seatKey(b.id, j), 'row');
     for (const [i, j] of slotNeighbours(slots)) {
       add(seatKey(slots[i].t, slots[i].s), seatKey(slots[j].t, slots[j].s), 'next');
       add(seatKey(slots[j].t, slots[j].s), seatKey(slots[i].t, slots[i].s), 'next');

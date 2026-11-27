@@ -41,11 +41,17 @@ export function App() {
     const open = () => setDlg('open');
     const tags = () => setDlg('tags');
     const reset = () => setDlg('reset');
+    const pickSeat = () => {
+      setView('plan');
+      setMpane('stage');
+    };
+    window.addEventListener('app:pick-seat', pickSeat);
     window.addEventListener('app:open-layout', open);
     window.addEventListener('app:tags', tags);
     window.addEventListener('app:reset', reset);
     return () => {
       window.removeEventListener('app:reset', reset);
+      window.removeEventListener('app:pick-seat', pickSeat);
       window.removeEventListener('app:open-layout', open);
       window.removeEventListener('app:tags', tags);
     };
@@ -145,21 +151,21 @@ export function App() {
         </span>
         <span className="spacer" />
         <nav className="seg" aria-label="Views">
-          <button aria-pressed={view === 'plan'} onClick={() => setView('plan')}>
+          <button aria-pressed={view === 'plan'} onClick={() => setView('plan')} aria-label="Floor plan" title="Floor plan">
             <Icon name="plan" size="sm" /> <span className="hide-sm">Floor plan</span>
           </button>
-          <button aria-pressed={view === 'guests'} onClick={() => setView('guests')}>
+          <button aria-pressed={view === 'guests'} onClick={() => setView('guests')} aria-label="Guests" title="Guests">
             <Icon name="users" size="sm" /> <span className="hide-sm">Guests</span>
           </button>
-          <button aria-pressed={view === 'network'} onClick={() => setView('network')}>
+          <button aria-pressed={view === 'network'} onClick={() => setView('network')} aria-label="Social graph" title="Social graph">
             <Icon name="graph" size="sm" /> <span className="hide-sm">Social graph</span>
           </button>
-          <button aria-pressed={view === 'lists'} onClick={() => setView('lists')}>
+          <button aria-pressed={view === 'lists'} onClick={() => setView('lists')} aria-label="Lists & export" title="Lists & export">
             <Icon name="list" size="sm" /> <span className="hide-sm">Lists & export</span>
           </button>
         </nav>
         <span className="spacer" />
-        <nav className="seg lang-seg" aria-label="Table name language" title="Table names: Chinese, English, or both">
+        <nav className="seg lang-seg hide-sm" aria-label="Table name language" title="Table names: Chinese, English, or both">
           {(['zh', 'en', 'both'] as const).map((l) => (
             <button key={l} lang={l === 'en' ? 'en' : 'zh'} aria-pressed={(project.settings.tableLang ?? 'both') === l} onClick={() => setTableLang(l)}>
               {l === 'zh' ? '中' : l === 'en' ? 'EN' : '中+EN'}
@@ -169,15 +175,26 @@ export function App() {
         <button className="icon-btn" onClick={undo} disabled={!past} title="Undo (Ctrl+Z)" aria-label="Undo">
           <Icon name="undo" />
         </button>
-        <button className="icon-btn" onClick={redo} disabled={!future} title="Redo (Ctrl+Shift+Z)" aria-label="Redo">
+        <button className="icon-btn hide-xs" onClick={redo} disabled={!future} title="Redo (Ctrl+Shift+Z)" aria-label="Redo">
           <Icon name="redo" />
         </button>
         <button className="btn primary hide-sm" onClick={() => setDlg('auto')} disabled={!project.tables.length || !project.guests.length}>
           <Icon name="wand" size="sm" /> Auto-seat
         </button>
+        <button className="icon-btn primary show-sm" onClick={() => setDlg('auto')} disabled={!project.tables.length || !project.guests.length} aria-label="Auto-seat" title="Auto-seat">
+          <Icon name="wand" />
+        </button>
         <Menu label="More" className="icon-btn" align="end" trigger={<Icon name="more" />}>
           {(close) => (
             <>
+              <div className="show-sm menu-lang" role="group" aria-label="Table name language">
+                {(['zh', 'en', 'both'] as const).map((l) => (
+                  <button key={l} className="chip" aria-pressed={(project.settings.tableLang ?? 'both') === l} onClick={() => setTableLang(l)}>
+                    {l === 'zh' ? '中文' : l === 'en' ? 'English' : '中+EN'}
+                  </button>
+                ))}
+              </div>
+              <div className="show-sm menu-sep" />
               <MenuItem icon="upload" onClick={() => (setDlg('import'), close())}>
                 Import guests (Joy, CSV…)
               </MenuItem>
@@ -229,7 +246,7 @@ export function App() {
           <Icon name="users" size="sm" /> Guests
         </button>
         <button className="btn ghost" aria-pressed={mpane === 'stage'} onClick={() => setMpane('stage')}>
-          <Icon name="plan" size="sm" /> {view === 'plan' ? 'Plan' : view === 'network' ? 'Graph' : 'Lists'}
+          <Icon name="plan" size="sm" /> {view === 'plan' ? 'Plan' : view === 'network' ? 'Graph' : view === 'guests' ? 'Table' : 'Lists'}
         </button>
         <button className="btn ghost" aria-pressed={mpane === 'details'} onClick={() => setMpane('details')}>
           <Icon name="info" size="sm" /> Details

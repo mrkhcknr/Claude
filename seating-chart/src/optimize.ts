@@ -58,8 +58,10 @@ export function improveSeating(p: Project, seating: Project['seating'], ctx: Hap
   const affected = (changed: string[]) => {
     const set = new Set<Id>();
     for (const s of changed) {
-      for (const g of tableGuests(tableOfSeat(s))) set.add(g);
-      for (const x of next(s)) {
+      const g0 = occupant.get(s);
+      if (g0) set.add(g0);
+      // everyone within reach of this chair: same table, next to it, or the next table in the row
+      for (const x of ctx.prox.get(s)?.keys() ?? []) {
         const g = occupant.get(x);
         if (g) set.add(g);
       }

@@ -160,6 +160,8 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
   const [colorBy, setColorBy] = useState<ColorBy>('group');
   const [includeDeclined, setIncludeDeclined] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  // phones/tablets: the groups & filters panel opens as a sheet
+  const [sideOpen, setSideOpen] = useState(false);
   const [cam, setCam] = useState({ x: 0, y: 0, k: 1 });
   /** Once the person pans or zooms, stop re-fitting the view for them. */
   const userMoved = useRef(false);
@@ -618,7 +620,10 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
         </div>
       )}
 
-      <div className="net-side" onPointerDown={(e) => e.stopPropagation()}>
+      <div className="net-side" data-open={sideOpen} onPointerDown={(e) => e.stopPropagation()}>
+        <button className="btn ghost sm show-md" style={{ justifySelf: 'end' }} onClick={() => setSideOpen(false)}>
+          Done
+        </button>
         <SearchBox open={showFilters} setOpen={setShowFilters} placeholder="Find a guest…" />
         {showFilters && <FilterSheet project={project} analysis={analysis} />}
         {nf > 0 && (
@@ -680,6 +685,9 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
       </div>
 
       <div className="palette zoom" onPointerDown={(e) => e.stopPropagation()}>
+        <button className="btn ghost sm show-md" onClick={() => setSideOpen(true)}>
+          <Icon name="filter" size="sm" /> Groups
+        </button>
         <button className="icon-btn" title="Zoom out" onClick={() => (userMoved.current = true) && setCam((c) => ({ ...c, k: clamp(c.k / 1.25, 0.25, 4) }))}>
           <Icon name="zoomOut" />
         </button>

@@ -9,6 +9,8 @@ import {
   addTableGrid,
   checkpoint,
   getState,
+  seatAtTable,
+  seatGuest,
   makeRectRoom,
   setCamera,
   setSelection,
@@ -61,7 +63,8 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
   const filters = useFilters();
   const wrap = useRef<HTMLDivElement>(null);
   const svg = useRef<SVGSVGElement>(null);
-  const [size, setSize] = useState({ w: 800, h: 600 });
+  // 0 until measured, so the first fit uses the real screen size (phones are much narrower than 800)
+  const [size, setSize] = useState({ w: 0, h: 0 });
   const [gesture, setGesture] = useState<Gesture | null>(null);
   const g = useRef<Gesture | null>(null);
   const [cursor, setCursor] = useState<Pt | null>(null);
@@ -83,13 +86,14 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
   }, []);
 
   // fit once when content first appears
-  const fitted = useRef(false);
+  const fitted = useRef(0);
   useEffect(() => {
-    if (fitted.current || size.w < 50) return;
-    if (project.tables.length || project.elements.length) {
-      fitted.current = true;
-      fitView(size);
-    }
+    if (size.w < 50 || size.h < 50) return;
+    if (!(project.tables.length || project.elements.length)) return;
+    // fit on first view, and again after a big size change (rotating a phone, switching panes)
+    if (fitted.current && Math.abs(size.w - fitted.current) / fitted.current < 0.3) return;
+    fitted.current = size.w;
+    fitView(size);
   }, [project.tables.length, project.elements.length, size]);
 
   useEffect(() => {
@@ -733,6 +737,19 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
                       data-seat={i}
                       style={guest && s.colorBy !== 'side' ? ({ '--seat-fill': colorOf(guest) } as React.CSSProperties) : undefined}
                       onPointerDown={(e) => {
+                        if (!guest && tool === 'select' && !spaceDown) {
+                          // tap-to-seat: with guests selected, tapping an empty chair seats them there
+                          const sel = getState().selection;
+                          if (sel?.type === 'guest' && sel.ids.length) {
+                            e.stopPropagation();
+                            const g0 = guestById.get(sel.ids[0]);
+                            if (sel.ids.length === 1) seatGuest(sel.ids[0], t.id, i);
+                            else seatAtTable(sel.ids, t.id, i);
+                            toast(sel.ids.length === 1 ? `Seated ${g0?.name ?? 'guest'} at ${tableName(t)}, seat ${i + 1}` : `Seated ${sel.ids.length} guests at ${tableName(t)}`, true);
+                            setSelection(null);
+                            return;
+                          }
+                        }
                         if (!guest || tool !== 'select' || spaceDown) return;
                         e.stopPropagation();
                         startGuestDrag(e, [guest.id], guest.name, (ev) => setSelection({ type: 'guest', ids: ev.shiftKey && selection?.type === 'guest' ? [...new Set([...selection.ids, guest.id])] : [guest.id] }));
@@ -1078,6 +1095,7 @@ function Palette({ fitView, zoom, scale }: { fitView: () => void; zoom: (f: numb
         {tb('door', 'door', 'Place door', 'D')}
         {tb('window', 'window', 'Place window', '')}
       </div>
+      <TapHint />
       <div className="palette zoom" onPointerDown={(e) => e.stopPropagation()}>
         <button className="icon-btn" title="Zoom out (−)" onClick={() => zoom(1 / 1.25)}>
           <Icon name="zoomOut" />
@@ -1328,3 +1346,22 @@ export function seatColorFn(p: Project) {
 }
 
 export { isCircular };
+
+/** While guests are selected: "Tap an empty seat to seat Alice" (the touch-friendly way to seat someone). */
+function TapHint() {
+  const sel = useStore((s) => s.selection);
+  const guests = useStore((s) => s.project.guests);
+  const dragging = useDrag((s) => s.active);
+  if (dragging || sel?.type !== 'guest' || !sel.ids.length) return null;
+  const who = sel.ids.length === 1 ? guests.find((g) => g.id === sel.ids[0])?.name : `${sel.ids.length} guests`;
+  return (
+    <div className="tap-hint" onPointerDown={(e) => e.stopPropagation()}>
+      <span>
+        Tap an empty seat to seat <b>{who}</b>
+      </span>
+      <button className="icon-btn sm" aria-label="Cancel" onClick={() => setSelection(null)}>
+        <Icon name="x" size="sm" />
+      </button>
+    </div>
+  );
+}
