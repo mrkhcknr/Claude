@@ -725,11 +725,11 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
                 <g transform={`translate(${t.x} ${t.y}) rotate(${labelRot})`} pointerEvents="none">
                   {hasTableName(t) ? (
                     (() => {
-                      const lang = project.settings.tableLang ?? 'both';
+                      // always: Chinese flower name as the title, English beneath (the language switcher doesn't change this)
                       const zh = (t.nameZh ?? '').replace(/（.*?）|\(.*?\)/g, '').trim(),
                         en = (t.nameEn ?? '').replace(/\(.*?\)/g, '').trim();
-                      const main = lang === 'en' ? en || zh : zh || en;
-                      const latin = lang === 'both' && zh && en ? en : '';
+                      const main = zh || en;
+                      const latin = zh && en ? en : '';
                       // fit text to the table's length; add detail as you zoom in
                       const room = (long || t.shape === 'round' || t.shape === 'square' ? t.w : t.w) * 0.88;
                       const em = (str: string) => [...str].reduce((a, ch) => a + (/[\u3000-\u9fff\uff00-\uffef]/.test(ch) ? 1 : 0.56), 0);
