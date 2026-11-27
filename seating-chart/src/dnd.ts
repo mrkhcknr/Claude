@@ -28,14 +28,36 @@ function readTarget(x: number, y: number): DropTarget | null {
   switch (d.drop) {
     case 'seat':
       return { kind: 'seat', tableId: d.table!, seat: +d.seat! };
-    case 'table':
-      return { kind: 'table', tableId: d.table! };
+    case 'table': {
+      // over the table itself: aim for the empty chair nearest the pointer (the chair lights up)
+      const seat = nearestSeat(d.table!, x, y);
+      return seat === null ? { kind: 'table', tableId: d.table! } : { kind: 'seat', tableId: d.table!, seat };
+    }
     case 'unseat':
       return { kind: 'unseat' };
     case 'group':
       return { kind: 'group', group: d.group! };
   }
   return null;
+}
+
+/** Index of the empty chair at a table closest to a screen point (any chair if all are taken). */
+function nearestSeat(tableId: Id, x: number, y: number): number | null {
+  const els = Array.from(document.querySelectorAll<SVGGElement>(`[data-drop="seat"][data-table="${CSS.escape(tableId)}"]`));
+  if (!els.length) return null;
+  const seats = getState().project.seating[tableId] ?? [];
+  const dist = (el: SVGGElement) => {
+    const r = (el.querySelector('circle.chair') ?? el).getBoundingClientRect();
+    return Math.hypot(r.x + r.width / 2 - x, r.y + r.height / 2 - y);
+  };
+  const pick = (list: SVGGElement[]) => list.reduce<SVGGElement | null>((best, el) => (!best || dist(el) < dist(best) ? el : best), null);
+  const dragging = new Set(useDrag.getState().guestIds);
+  const empty = els.filter((el) => {
+    const g = seats[+el.dataset.seat!];
+    return !g || dragging.has(g);
+  });
+  const el = pick(empty.length ? empty : els);
+  return el ? +el.dataset.seat! : null;
 }
 
 export const sameTarget = (a: DropTarget | null, b: DropTarget | null) => JSON.stringify(a) === JSON.stringify(b);

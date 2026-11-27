@@ -1099,12 +1099,12 @@ body.is-dragging .unseat-zone {
   stroke-dasharray: 5 4;
   fill: color-mix(in oklch, var(--bad) 7%, transparent);
 }
-.plan .seat circle {
+.plan .seat circle.chair {
   fill: var(--seat-empty);
   stroke: var(--table-line);
   transition: r 0.2s var(--ease-spring);
 }
-.plan .seat.filled circle {
+.plan .seat.filled circle.chair {
   fill: var(--seat-fill, var(--none));
   stroke: color-mix(in oklch, var(--seat-fill, var(--none)) 70%, var(--ink));
 }
@@ -1134,11 +1134,11 @@ body.is-dragging .unseat-zone {
 .plan .dim {
   opacity: 0.22;
 }
-.plan .seat.match circle {
+.plan .seat.match circle.chair {
   stroke: var(--bloom);
   stroke-width: 2.4;
 }
-.plan .seat.over circle,
+.plan .seat.over circle.chair,
 .plan .tbl.over .table-shape {
   stroke: var(--drop, var(--ok));
   stroke-width: 3;
@@ -1150,7 +1150,7 @@ body.is-dragging .unseat-zone {
 .plan .seat.over.bad {
   --drop: var(--bad);
 }
-.plan .seat.focus circle {
+.plan .seat.focus circle.chair {
   animation: pulse 0.9s ease-in-out 3;
 }
 @keyframes pulse {
@@ -2314,3 +2314,5 @@ select.cell-input.rsvp-pending {
 .reset-item.danger b { color: var(--bad); }
 .reset-item.implied { opacity: 0.75; }
 .reset-item .badge { justify-self: start; }
+
+.seat-hit { fill: transparent; stroke: none; }

@@ -383,8 +383,12 @@ export function seatGuest(guestId: Id, tableId: Id, seat: number) {
     }
     if (from && from.t === tableId && from.s === seat) return;
     const occupant = arr[seat];
-    // swap: the occupant takes the mover's old seat (or becomes unseated)
+    // swap: the occupant takes the mover's old seat, or the nearest empty chair at this table
     if (from) d.seating[from.t][from.s] = occupant ?? null;
+    else if (occupant) {
+      const free = arr.map((g, i) => (g ? -1 : i)).filter((i) => i >= 0).sort((a, b) => Math.abs(a - seat) - Math.abs(b - seat))[0];
+      if (free !== undefined) arr[free] = occupant;
+    }
     arr[seat] = guestId;
   });
 }

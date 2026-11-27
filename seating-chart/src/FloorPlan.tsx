@@ -736,7 +736,9 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
                         startGuestDrag(e, [guest.id], guest.name, (ev) => setSelection({ type: 'guest', ids: ev.shiftKey && selection?.type === 'guest' ? [...new Set([...selection.ids, guest.id])] : [guest.id] }));
                       }}
                     >
-                      <circle cx={wp.x} cy={wp.y} r={over ? CHAIR_R * 1.25 : CHAIR_R} strokeWidth={1.1 * k} />
+                      {/* a generous, invisible drop zone: chairs are only a few pixels wide when zoomed out */}
+                      <circle className="seat-hit" cx={wp.x} cy={wp.y} r={CHAIR_R * 1.6} />
+                      <circle className="chair" cx={wp.x} cy={wp.y} r={over ? CHAIR_R * 1.35 : CHAIR_R} strokeWidth={1.1 * k} />
                       {guest && camera.scale >= 7 && (
                         <text className="ini" x={wp.x} y={wp.y} textAnchor="middle" dominantBaseline="central" style={{ fontSize: CHAIR_R * 0.78 }}>
                           {initials(guest.name)}
