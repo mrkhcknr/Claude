@@ -781,9 +781,6 @@ function GuestInspector({ g, analysis }: { g: Guest; analysis: Analysis }) {
           <label className="check">
             <input type="checkbox" checked={g.child} onChange={(e) => set({ child: e.target.checked })} /> Child
           </label>
-          <label className="check">
-            <input type="checkbox" checked={g.accessible} onChange={(e) => set({ accessible: e.target.checked })} /> Accessible seat
-          </label>
         </div>
       </div>
       <div className="section">

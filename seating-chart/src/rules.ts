@@ -35,8 +35,6 @@ export interface SeatingRules {
   reserved: number;
   /** Pull groups to the tables / areas they're assigned to */
   placement: number;
-  /** Seat guests who need access near doors */
-  accessible: number;
   /** When re-seating everyone, reward staying at the current table */
   stability: number;
   /** Order chairs so the most connected people sit side by side */
@@ -65,7 +63,6 @@ export const DEFAULT_RULES: SeatingRules = {
   balanceStrength: 0.6,
   reserved: 8,
   placement: 12,
-  accessible: 4,
   stability: 0,
   neighbours: true,
   couplesSideBySide: true,
@@ -125,7 +122,6 @@ export const SLIDERS: { section: string; items: RuleSlider[] }[] = [
       { key: 'balanceStrength', label: 'Table fill strength', help: 'How strongly to spread guests evenly (or fill tables completely).', min: 0, max: 3, step: 0.1, ends: ['Loose', 'Strict'] },
       { key: 'placement', label: 'Group placements', help: 'How strongly groups sit at the tables or areas you assigned them to.', min: 0, max: 30, step: 1, ends: ['Ignore', 'Always'] },
       { key: 'reserved', label: 'Reserved tables', help: 'How strictly tables "reserved for" a group take only that group.', min: 0, max: 20, step: 1, ends: ['Ignore', 'Strict'] },
-      { key: 'accessible', label: 'Accessible seats near exits', help: 'Guests who need access sit close to a door.', min: 0, max: 12, step: 0.5, ends: ['Ignore', 'Strong'] },
       { key: 'stability', label: 'Keep changes small', help: 'When re-seating everyone, prefer each guest\'s current table.', min: 0, max: 10, step: 0.5, ends: ['Free', 'Minimal'] },
     ],
   },

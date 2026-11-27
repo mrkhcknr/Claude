@@ -214,7 +214,6 @@ function GuestRow({ g, selected, table, onClick, dragIds }: { g: Guest; selected
       <span className="gmeta">
         {g.child && <span className="badge">Child</span>}
         {g.dietary && <span className="badge warn" title={g.dietary}>Diet</span>}
-        {g.accessible && <span className="badge" title="Needs an accessible seat">♿</span>}
         {g.rsvp === 'pending' && <span className="badge">?</span>}
         {g.rsvp !== 'no' && <span className={`seat-tag ${table ? '' : 'none'}`}>{table ?? 'Unseated'}</span>}
       </span>
@@ -243,7 +242,6 @@ const FLAG_LABEL: Record<Filters['flags'][number], string> = {
   noTies: 'No ties yet',
   dietary: 'Dietary needs',
   child: 'Children',
-  accessible: 'Accessible seat',
   plusOne: 'Plus-ones',
   pinned: 'Pinned',
 };

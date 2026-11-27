@@ -9,7 +9,7 @@ import { groupTags, type Analysis } from './scoring';
 import { lastName, slug } from './util';
 import { Icon, Menu, TextField, ask } from './ui';
 
-type Col = 'household' | 'rsvp' | 'meal' | 'dietary' | 'side' | 'tags' | 'table' | 'flags' | 'ties' | 'sources' | 'issues' | 'notes';
+type Col = 'household' | 'rsvp' | 'meal' | 'dietary' | 'side' | 'tags' | 'table' | 'child' | 'pin' | 'ties' | 'sources' | 'issues' | 'notes';
 const COLS: { c: Col; label: string }[] = [
   { c: 'household', label: 'Household' },
   { c: 'rsvp', label: 'RSVP' },
@@ -18,7 +18,8 @@ const COLS: { c: Col; label: string }[] = [
   { c: 'side', label: 'Side' },
   { c: 'tags', label: 'Groups & tags' },
   { c: 'table', label: 'Table · seat' },
-  { c: 'flags', label: 'Child · access · pinned' },
+  { c: 'child', label: 'Child' },
+  { c: 'pin', label: 'Pinned seat' },
   { c: 'ties', label: 'Ties' },
   { c: 'sources', label: 'Imported lists' },
   { c: 'issues', label: 'Discrepancies' },
@@ -33,7 +34,9 @@ export function GuestsView({ analysis }: { analysis: Analysis }) {
   const [showFilters, setShowFilters] = useState(false);
   const [hidden, setHidden] = useState<Set<Col>>(() => {
     try {
-      return new Set(JSON.parse(localStorage.getItem('wsp:guest-cols') ?? '[]'));
+      const h: string[] = JSON.parse(localStorage.getItem('wsp:guest-cols') ?? '[]');
+      // the old combined column
+      return new Set((h.includes('flags') ? [...h.filter((x) => x !== 'flags'), 'child', 'pin'] : h) as Col[]);
     } catch {
       return new Set();
     }
@@ -113,7 +116,7 @@ export function GuestsView({ analysis }: { analysis: Analysis }) {
   };
 
   function exportView() {
-    const head = ['Guest', 'Household', 'RSVP', 'Meal', 'Dietary', 'Side', 'Groups', 'Table', 'Seat', 'Child', 'Accessible', 'Notes', ...labels.flatMap((l) => [`${l} RSVP`, `${l} meal`]), 'Discrepancies'];
+    const head = ['Guest', 'Household', 'RSVP', 'Meal', 'Dietary', 'Side', 'Groups', 'Table', 'Seat', 'Child', 'Notes', ...labels.flatMap((l) => [`${l} RSVP`, `${l} meal`]), 'Discrepancies'];
     const body = rows.map((g) => {
       const l = loc.get(g.id);
       return [
@@ -127,7 +130,6 @@ export function GuestsView({ analysis }: { analysis: Analysis }) {
         l ? tableName(tableById.get(l.tableId)!) : '',
         l ? l.seat + 1 : '',
         g.child ? 'Yes' : '',
-        g.accessible ? 'Yes' : '',
         g.notes,
         ...labels.flatMap((lb) => [g.sources?.[lb]?.rsvp ? rsvpWord(g.sources[lb].rsvp!) : '', g.sources?.[lb]?.meal ?? '']),
         (analysis.discByGuest.get(g.id) ?? []).map((d) => d.text).join(' | '),
@@ -222,7 +224,8 @@ export function GuestsView({ analysis }: { analysis: Analysis }) {
                 {show('side') && th('Side', 'side')}
                 {show('tags') && th('Groups & tags')}
                 {show('table') && th('Table · seat', 'table')}
-                {show('flags') && th('Child · ♿ · pin')}
+                {show('child') && <th className="flag-col" title="A child (seated with other children when that rule is on)">Child</th>}
+                {show('pin') && <th className="flag-col" title="Pinned: auto-seat never moves this guest">Pinned</th>}
                 {show('ties') && th('Ties')}
                 {show('sources') && labels.map((l) => <th key={l}>{l}</th>)}
                 {show('issues') && th('Discrepancies', 'issues')}
@@ -299,11 +302,14 @@ export function GuestsView({ analysis }: { analysis: Analysis }) {
                         {l && <span className="muted small"> · {l.seat + 1}</span>}
                       </td>
                     )}
-                    {show('flags') && (
+                    {show('child') && (
                       <td className="flags">
-                        <input type="checkbox" title="Child" checked={g.child} onChange={(e) => updateGuests([g.id], { child: e.target.checked })} />
-                        <input type="checkbox" title="Needs an accessible seat" checked={g.accessible} onChange={(e) => updateGuests([g.id], { accessible: e.target.checked })} />
-                        <input type="checkbox" title="Pinned seat" checked={g.pinned} onChange={(e) => updateGuests([g.id], { pinned: e.target.checked })} />
+                        <input type="checkbox" aria-label={`${g.name} is a child`} checked={g.child} onChange={(e) => updateGuests([g.id], { child: e.target.checked })} />
+                      </td>
+                    )}
+                    {show('pin') && (
+                      <td className="flags">
+                        <input type="checkbox" aria-label={`Pin ${g.name}'s seat`} checked={g.pinned} onChange={(e) => updateGuests([g.id], { pinned: e.target.checked })} />
                       </td>
                     )}
                     {show('ties') && <td className="num">{ties.get(g.id) || ''}</td>}

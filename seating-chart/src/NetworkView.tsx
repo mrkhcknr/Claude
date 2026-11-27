@@ -28,6 +28,87 @@ interface L extends SimulationLinkDatum<N> {
 const LINK_DIST: Record<L['kind'], number> = { hub: 46, party: 22, partner: 20, family: 30, friend: 36, coworker: 48, acquaintance: 70, tension: 200 };
 const LINK_STR: Record<L['kind'], number> = { hub: 0.22, party: 1, partner: 1, family: 0.9, friend: 0.8, coworker: 0.6, acquaintance: 0.35, tension: 0.12 };
 
+/**
+ * Keep group bubbles from overlapping: guests are pushed out of the bubbles of groups they're not in,
+ * and whole groups push each other apart. Guests in several groups stay where they are (they bridge).
+ */
+function forceGroups(nodes: Map<string, N>) {
+  const PAD = 34;
+  let alpha = 1;
+  const guestsOf = new Map<string, N[]>();
+  const tagsOf = new Map<N, Set<string>>();
+  for (const n of nodes.values()) {
+    if (!n.guest) continue;
+    const ts = new Set(groupTags(n.guest));
+    tagsOf.set(n, ts);
+    for (const t of ts) guestsOf.set(t, [...(guestsOf.get(t) ?? []), n]);
+  }
+  const groups = [...guestsOf.entries()].filter(([, m]) => m.length > 1);
+  const force = () => {
+    const circles = groups.map(([t, m]) => {
+      let x = 0,
+        y = 0;
+      for (const n of m) (x += n.x!), (y += n.y!);
+      x /= m.length;
+      y /= m.length;
+      let r = 0;
+      for (const n of m) r = Math.max(r, Math.hypot(n.x! - x, n.y! - y));
+      return { t, m, x, y, r: r + PAD };
+    });
+    const k = 0.5 * alpha;
+    // guests outside a group's bubble
+    for (const c of circles)
+      for (const [n, ts] of tagsOf) {
+        if (ts.has(c.t)) continue;
+        const dx = n.x! - c.x,
+          dy = n.y! - c.y;
+        const d = Math.hypot(dx, dy) || 0.01;
+        const min = c.r + 10;
+        if (d < min) {
+          const f = ((min - d) / d) * k;
+          n.vx! += dx * f;
+          n.vy! += dy * f;
+        }
+      }
+    // bubbles apart (moving only members that belong to just that one of the pair)
+    for (let i = 0; i < circles.length; i++)
+      for (let j = i + 1; j < circles.length; j++) {
+        const a = circles[i],
+          b = circles[j];
+        const dx = b.x - a.x,
+          dy = b.y - a.y;
+        const d = Math.hypot(dx, dy) || 0.01;
+        const min = a.r + b.r;
+        if (d >= min) continue;
+        const f = ((min - d) / d) * k * 0.25;
+        for (const n of a.m) if (!tagsOf.get(n)!.has(b.t)) (n.vx! -= dx * f), (n.vy! -= dy * f);
+        for (const n of b.m) if (!tagsOf.get(n)!.has(a.t)) (n.vx! += dx * f), (n.vy! += dy * f);
+      }
+  };
+  // d3 passes alpha on each tick
+  return Object.assign((a: number) => {
+    alpha = a;
+    force();
+  }, { initialize: () => {} });
+}
+
+/** Nudge group labels up until none overlap. */
+function placeLabels(items: { tag: string; x: number; y: number; w: number }[], obstacles: { x: number; y: number }[]) {
+  const placed: { x: number; y: number; w: number; tag: string }[] = [];
+  for (const it of [...items].sort((a, b) => a.y - b.y)) {
+    let y = it.y;
+    for (let tries = 0; tries < 40; tries++) {
+      const hit = placed.find((p) => Math.abs(p.x - it.x) < (p.w + it.w) / 2 + 6 && Math.abs(p.y - y) < 20);
+      // a guest dot or its name under the label
+      const node = obstacles.find((o) => Math.abs(o.x - it.x) < it.w / 2 + 10 && y - 14 < o.y + 24 && o.y - 12 < y + 4);
+      if (!hit && !node) break;
+      y = Math.min(hit ? hit.y - 21 : y, node ? node.y - 18 : y);
+    }
+    placed.push({ ...it, y });
+  }
+  return new Map(placed.map((p) => [p.tag, p.y]));
+}
+
 // positions survive view switches
 const memo = new Map<string, { x: number; y: number }>();
 
@@ -43,6 +124,8 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
   const [includeDeclined, setIncludeDeclined] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [cam, setCam] = useState({ x: 0, y: 0, k: 1 });
+  /** Once the person pans or zooms, stop re-fitting the view for them. */
+  const userMoved = useRef(false);
   const [, setTick] = useState(0);
   const [rubber, setRubber] = useState<{ from: N; to: { x: number; y: number }; over?: string } | null>(null);
   const [lasso, setLasso] = useState<{ x: number; y: number }[] | null>(null);
@@ -110,7 +193,8 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
     const s = forceSimulation<N, L>([...nodes.values()])
       .force('link', linkForce)
       .force('charge', forceManyBody<N>().strength((d) => (d.hub ? -10 : -70)).distanceMax(420))
-      .force('collide', forceCollide<N>((d) => (d.hub ? 0 : 15)))
+      .force('collide', forceCollide<N>((d) => (d.hub ? 0 : 17)))
+      .force('groups', forceGroups(nodes))
       .force('center', forceCenter(W / 2, H / 2).strength(0.04))
       .force('x', forceX<N>(W / 2).strength(0.025))
       .force('y', forceY<N>(H / 2).strength(0.025))
@@ -126,6 +210,7 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
     });
     s.on('end', () => {
       for (const n of nodes.values()) if (!n.hub) memo.set(n.id, { x: n.x!, y: n.y! });
+      if (!userMoved.current) fitView();
     });
     sim.current = s;
     return () => {
@@ -143,6 +228,27 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  /** Fit every guest into the part of the canvas not covered by the toolbars and side panel. */
+  function fitView() {
+    const pts = [...nodesRef.current.values()].filter((n) => n.guest);
+    if (!pts.length) return;
+    const xs = pts.map((n) => n.x!),
+      ys = pts.map((n) => n.y!);
+    const pad = 60;
+    const x0 = Math.min(...xs) - pad,
+      x1 = Math.max(...xs) + pad,
+      y0 = Math.min(...ys) - pad - 20,
+      y1 = Math.max(...ys) + pad;
+    const { w, h } = size.current;
+    const side = w > 700 ? 240 : 0;
+    const top = 110,
+      bottom = 60;
+    const aw = w - side - 24,
+      ah = h - top - bottom;
+    const k = clamp(Math.min(aw / (x1 - x0), ah / (y1 - y0)), 0.25, 1.4);
+    setCam({ k, x: 12 + (aw - (x1 - x0) * k) / 2 - x0 * k, y: top + (ah - (y1 - y0) * k) / 2 - y0 * k });
+  }
 
   // keyboard brushes
   useEffect(() => {
@@ -164,6 +270,7 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
       const r = el.getBoundingClientRect();
       const px = e.clientX - r.left,
         py = e.clientY - r.top;
+      userMoved.current = true;
       setCam((c) => {
         const k = clamp(c.k * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), 0.25, 4);
         return { k, x: px - ((px - c.x) * k) / c.k, y: py - ((py - c.y) * k) / c.k };
@@ -193,6 +300,11 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tagList, tagColor, gnodes.map((n) => `${n.x?.toFixed(0)},${n.y?.toFixed(0)}`).join()]);
+
+  const labelY = placeLabels(
+    hulls.filter((h) => h.pts.length > 1).map((h) => ({ tag: h.tag, x: h.pts.reduce((a, p) => a + p.x, 0) / h.pts.length, y: Math.min(...h.pts.map((p) => p.y)) - 30, w: h.label.length * 8.6 })),
+    gnodes.map((n) => ({ x: n.x!, y: n.y! })),
+  );
 
   function colorOf(g: Guest) {
     if (colorBy === 'side') return g.side === 'partner1' ? 'var(--p1)' : g.side === 'partner2' ? 'var(--p2)' : g.side === 'both' ? 'var(--both)' : 'var(--none)';
@@ -248,7 +360,7 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
     const g = gest.current;
     if (!g) return;
     const p = toGraph(e.clientX, e.clientY);
-    if (g.t === 'pan') setCam({ ...g.c, x: g.c.x + e.clientX - g.sx, y: g.c.y + e.clientY - g.sy });
+    if (g.t === 'pan') (userMoved.current = true), setCam({ ...g.c, x: g.c.x + e.clientX - g.sx, y: g.c.y + e.clientY - g.sy });
     else if (g.t === 'lasso') setLasso((l) => (l ? [...l, p] : l));
     else if (g.t === 'node') {
       if (!g.moved && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) < 4) return;
@@ -359,13 +471,15 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
           {hulls.map((h) => (
             <g key={h.tag} className={`hull ${dropGroup === h.label ? 'drop' : ''}`}>
               <path d={hullPath(h.pts)} fill={h.color} stroke={h.color} strokeWidth={44} />
-              {h.pts.length > 1 && (
-                <text x={h.pts.reduce((a, p) => a + p.x, 0) / h.pts.length} y={Math.min(...h.pts.map((p) => p.y)) - 26} textAnchor="middle">
-                  {h.label}
-                </text>
-              )}
             </g>
           ))}
+          {hulls.map((h) =>
+            h.pts.length > 1 ? (
+              <text key={h.tag} className="hull-label" x={h.pts.reduce((a, p) => a + p.x, 0) / h.pts.length} y={labelY.get(h.tag)} textAnchor="middle">
+                {h.label}
+              </text>
+            ) : null,
+          )}
           {/* edges */}
           {project.relations.map((r) => {
             const a = byId.get(r.a),
@@ -403,7 +517,7 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
             return (
               <g key={n.id} className={`node ${sel ? 'sel' : ''} ${iso ? 'isolated' : ''} ${!match ? 'dim' : ''} ${rubber?.over === n.id ? 'link-target' : ''}`} data-node={n.id} transform={`translate(${n.x} ${n.y})`}>
                 <circle r={r} fill={colorOf(g)} style={{ cursor: brush === 'move' ? 'grab' : brush === 'lasso' ? 'crosshair' : 'pointer' }} />
-                {(cam.k > 0.7 || sel) && (
+                {(cam.k > 0.5 || sel) && (
                   <text y={r + 12} textAnchor="middle">
                     {sel || cam.k > 1.4 ? g.name : firstName(g.name)}
                   </text>
@@ -520,13 +634,20 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
       </div>
 
       <div className="palette zoom" onPointerDown={(e) => e.stopPropagation()}>
-        <button className="icon-btn" title="Zoom out" onClick={() => setCam((c) => ({ ...c, k: clamp(c.k / 1.25, 0.25, 4) }))}>
+        <button className="icon-btn" title="Zoom out" onClick={() => (userMoved.current = true) && setCam((c) => ({ ...c, k: clamp(c.k / 1.25, 0.25, 4) }))}>
           <Icon name="zoomOut" />
         </button>
-        <button className="zoom-label" onClick={() => setCam({ x: 0, y: 0, k: 1 })} title="Reset view">
+        <button
+          className="zoom-label"
+          onClick={() => {
+            userMoved.current = false;
+            fitView();
+          }}
+          title="Fit everyone in view"
+        >
           {Math.round(cam.k * 100)}%
         </button>
-        <button className="icon-btn" title="Zoom in" onClick={() => setCam((c) => ({ ...c, k: clamp(c.k * 1.25, 0.25, 4) }))}>
+        <button className="icon-btn" title="Zoom in" onClick={() => (userMoved.current = true) && setCam((c) => ({ ...c, k: clamp(c.k * 1.25, 0.25, 4) }))}>
           <Icon name="zoomIn" />
         </button>
         <button className="icon-btn" title="Shake the layout" onClick={() => sim.current?.alpha(0.8).restart()}>

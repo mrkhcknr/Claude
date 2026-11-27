@@ -58,7 +58,7 @@ function roster(p: Project) {
       hh = 'h' + partyNo.get(g.party);
     }
     const t = tableOf.get(g.id);
-    return [gid.get(g.id), g.name, groupTags(g).join('; '), side(g.side), hh, g.child ? 'child' : '', g.accessible ? 'accessible' : '', t ? tid.get(t) : ''].join(' | ');
+    return [gid.get(g.id), g.name, groupTags(g).join('; '), side(g.side), hh, g.child ? 'child' : '', t ? tid.get(t) : ''].join(' | ');
   });
   const ties = p.relations
     .filter((r) => gid.has(r.a) && gid.has(r.b))
@@ -101,7 +101,7 @@ THEIR WISHES:
 
 PARTNERS: ${p.settings.partner1} and ${p.settings.partner2} (the "side" column says whose guest someone is).
 
-GUESTS (id | name | tags | side | household | child | accessible | current table):
+GUESTS (id | name | tags | side | household | child | current table):
 ${r.lines.join('\n')}
 
 TABLES (id | name | seats | area | reservation):
@@ -177,7 +177,7 @@ export async function reviewSeating(p: Project, focus: string, signal?: AbortSig
   const issues = a.issues.filter((i) => i.level !== 'info' || /no ties/.test(i.text)).slice(0, 40).map((i) => '- ' + i.text);
   const prompt = `Review this wedding reception seating chart and suggest at most 8 concrete improvements. Each suggestion must be a swap of two seated guests or a move of one guest to a table with a free seat.
 ${focus.trim() ? `\nTHE COUPLE'S FOCUS: """${focus}"""\n` : ''}
-GUESTS (id | name | tags | side | household | child | accessible | current table):
+GUESTS (id | name | tags | side | household | child | current table):
 ${r.lines.join('\n')}
 
 TIES (a relationship[+seating rule] (context) b): ${r.ties.join(', ') || 'none'}

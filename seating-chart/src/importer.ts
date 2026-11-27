@@ -57,7 +57,6 @@ const PATTERNS: [Field, RegExp][] = [
   ['meal', /meal|entr[eé]e|menu|dinner|food[ _-]?choice/i],
   ['dietary', /diet|allerg|restriction/i],
   ['child', /child|kid|^age|minor/i],
-  ['accessible', /access|wheelchair|mobility|ada\b/i],
   ['notes', /note|comment/i],
   ['table', /^table([ _-]?(number|no|#|name))?$/i],
   ['plusOne', /plus[ _-]?one|\+ ?1|guest[ _-]?allowed|additional[ _-]?guests?/i],
@@ -80,9 +79,10 @@ export const cleanHeader = (h: string) => h.replace(/\s*\((optional|required)\)\
 
 const RSVP_VALUE = /^(attending|not attending|declined|accepted|yes|no|maybe|no response|awaiting response|pending|invited|regrets?)$/i;
 
-export function parseCsv(text: string): Parsed {
+export function parseCsv(text: string, delimiter?: string): Parsed {
   const res = Papa.parse<Record<string, string>>(text.replace(/^﻿/, ''), {
     header: true,
+    delimiter: delimiter ?? '',
     skipEmptyLines: 'greedy',
     transformHeader: (h) => h.trim(),
   });
@@ -271,7 +271,8 @@ export function parsePaste(text: string): { csv: Parsed } | { guests: Guest[] } 
   const lines = text.split(/\r?\n/);
   const first = lines.find((l) => l.trim()) ?? '';
   if (/\t/.test(first) || (/,/.test(first) && /name/i.test(first))) {
-    return { csv: parseCsv(text.includes('\t') ? text.replace(/\t/g, ',').replace(/^|$/gm, '') : text) };
+    // rows copied from Excel / Google Sheets are tab-separated; cells may contain commas
+    return { csv: parseCsv(text, /\t/.test(first) ? '\t' : undefined) };
   }
   let group = '';
   const guests: Guest[] = [];

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Guest, Id, ImportRecord } from './types';
 import { toast, update, useStore } from './store';
 import { parseCsv, parsePaste, type Parsed } from './importer';
+import { ACCEPT, loadTable, sheetToParsed } from './fileImport';
+import type { Sheet } from './xlsx';
 import { CFIELDS, buildRows, detectCrossMapping, diffsFor, matchRows, rsvpWord, type CField, type CrossRow } from './crosscheck';
 import { Dialog, Icon } from './ui';
 import { knownAs, uid } from './util';
@@ -38,9 +40,15 @@ export function CrosscheckDialog({ open, onClose }: { open: boolean; onClose: ()
     if (name) setLabel(name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').replace(/\s*\d{4}[\d\s-]*$/, '').trim() || 'RSVP list');
     setStep('map');
   }
+  const [sheets, setSheets] = useState<Sheet[] | null>(null);
+  const [fileName, setFileName] = useState('');
   async function onFile(f?: File) {
     if (!f) return;
-    useParsed(parseCsv(await f.text()), f.name);
+    setFileName(f.name);
+    const r = await loadTable(f);
+    if ('error' in r) toast(r.error);
+    else if ('sheets' in r) setSheets(r.sheets);
+    else useParsed(r.parsed, f.name);
   }
 
   const rows = useMemo(() => {
@@ -200,13 +208,22 @@ export function CrosscheckDialog({ open, onClose }: { open: boolean; onClose: ()
           >
             <Icon name="upload" />
             <b>Drop the RSVP / meal file here, or choose it</b>
-            <span className="muted">CSV or TSV. Export from Google Sheets, Excel, Typeform, Zola, The Knot…</span>
-            <input type="file" accept=".csv,.tsv,.txt,text/csv" onChange={(e) => void onFile(e.target.files?.[0])} style={{ maxWidth: 260 }} />
+            <span className="muted">Excel (.xlsx), CSV or TSV — from Google Sheets, Excel, Typeform, Zola, The Knot…</span>
+            <input type="file" accept={ACCEPT} onChange={(e) => void onFile(e.target.files?.[0])} style={{ maxWidth: 260 }} />
           </label>
           <label className="field">
             <span>Or paste rows (with a header row)</span>
             <textarea className="input" rows={5} value={text} onChange={(e) => setText(e.target.value)} placeholder={'Name\tRSVP\tMeal\nAlex Rivera\tYes\tChicken'} />
           </label>
+          {sheets && (
+            <SheetPicker
+              sheets={sheets}
+              onPick={(sh) => {
+                setSheets(null);
+                useParsed(sheetToParsed(sh), `${fileName.replace(/\.[^.]+$/, '')} ${sh.name}`);
+              }}
+            />
+          )}
           <PrivacyNote />
         </>
       )}
@@ -412,6 +429,22 @@ export function RemovedColumns({ parsed }: { parsed: Parsed }) {
       <span>
         Removed for privacy: {parsed.removed.map((r) => r.header).join(', ')}.
       </span>
+    </div>
+  );
+}
+
+/** Choose which sheet of a workbook to import. */
+export function SheetPicker({ sheets, onPick }: { sheets: Sheet[]; onPick: (s: Sheet) => void }) {
+  return (
+    <div className="callout" style={{ display: 'grid', gap: 6 }}>
+      <b>This workbook has {sheets.length} sheets. Which one is the guest list?</b>
+      <div className="row" style={{ gap: 6 }}>
+        {sheets.map((sh) => (
+          <button key={sh.name} className="btn sm" onClick={() => onPick(sh)}>
+            {sh.name} <span className="muted">· {sh.rows.filter((r) => r.some((c) => c.trim())).length - 1} rows</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

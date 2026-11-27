@@ -1297,7 +1297,7 @@ body.is-dragging .unseat-zone {
   stroke-linecap: round;
   opacity: 0.16;
 }
-.net .hull text {
+.net .hull-label {
   font-family: var(--f-display);
   font-size: 17px;
   fill: var(--ink-2);
@@ -2301,3 +2301,6 @@ select.cell-input.rsvp-pending {
 .placements .placement .icon-btn { margin-left: auto; }
 .placements .input { width: auto; flex: 1; min-width: 0; }
 .warn-text { color: var(--warn); }
+
+.guest-grid th.flag-col { width: 1%; text-align: center; hyphens: manual; }
+.guest-grid td.flags { text-align: center; }

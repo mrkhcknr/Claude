@@ -1,6 +1,6 @@
 import type { Guest, Id, Project, Relation, Table } from './types';
 import { effectiveSeat, effectOf, type Effect } from './relations';
-import { clearanceIssues, joinedGroups, nearestDoorDist, slotsAdjacent } from './geometry';
+import { clearanceIssues, joinedGroups, slotsAdjacent } from './geometry';
 import { likelySame } from './util';
 import { tableName } from './store';
 import { rulesOf } from './rules';
@@ -107,10 +107,6 @@ function reservedFit(g: Guest, t: Table, R: ReturnType<typeof rulesOf>) {
 export function tableFit(g: Guest, t: Table, p: Project) {
   const R = rulesOf(p.settings);
   let w = reservedFit(g, t, R);
-  if (g.accessible && R.accessible) {
-    const d = nearestDoorDist(p, t);
-    if (Number.isFinite(d)) w += R.accessible * Math.max(-1, 1 - d / 24);
-  }
   if (R.placement) {
     // assigned groups: pulled to their tables/area, pushed (gently) away from elsewhere
     let mine = 0,
@@ -207,12 +203,6 @@ export function analyse(p: Project) {
     if (res) {
       const off = r.guests.filter((g) => reservedFit(g, r.table, rulesOf(p.settings)) < 0);
       if (off.length) issues.push({ level: 'warn', text: `${off.length} guest(s) at ${tableName(r.table)} aren't in "${res}"`, tableId: r.table.id, guestIds: off.map((g) => g.id) });
-    }
-    for (const g of r.guests) {
-      if (!g.accessible) continue;
-      const d = nearestDoorDist(p, r.table);
-      if (!Number.isFinite(d)) issues.push({ level: 'info', text: `${g.name} needs an accessible seat — add doors to the plan so it can be checked`, guestIds: [g.id], tableId: r.table.id });
-      else if (d > 25) issues.push({ level: 'warn', text: `${g.name} needs an accessible seat but ${tableName(r.table)} is ${Math.round(d)} ft from the nearest door`, guestIds: [g.id], tableId: r.table.id });
     }
   }
 

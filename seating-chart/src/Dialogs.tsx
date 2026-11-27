@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Guest, ImportRecord, Project } from './types';
-import { PrivacyNote, RemovedColumns } from './CrosscheckDialog';
+import { PrivacyNote, RemovedColumns, SheetPicker } from './CrosscheckDialog';
+import { ACCEPT, loadTable, sheetToParsed } from './fileImport';
+import type { Sheet } from './xlsx';
 import { addGuests, emptyProject, loadProject, migrate, setSelection, tableName, toast, update, useStore } from './store';
-import { FIELD_LABEL, detectMapping, parseCsv, parsePaste, planMerge, rowsToGuests, suggestOptions, toRsvp, type Field, type ImportOptions, type Mapping, type Parsed } from './importer';
+import { FIELD_LABEL, detectMapping, parsePaste, planMerge, rowsToGuests, suggestOptions, toRsvp, type Field, type ImportOptions, type Mapping, type Parsed } from './importer';
 import { Dialog, Icon, NumField, TextField, ask } from './ui';
 import { uid } from './util';
 
 // ======================= Import guests =======================
-const FIELDS: Field[] = ['first', 'last', 'name', 'suffix', 'party', 'group', 'rsvp', 'meal', 'dietary', 'side', 'child', 'accessible', 'notes', 'table', 'plusOne', 'plusOneOf', 'extId'];
+const FIELDS: Field[] = ['first', 'last', 'name', 'suffix', 'party', 'group', 'rsvp', 'meal', 'dietary', 'side', 'child', 'notes', 'table', 'plusOne', 'plusOneOf', 'extId'];
 
 export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const project = useStore((s) => s.project);
@@ -22,6 +24,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const [skipDupes, setSkipDupes] = useState<Set<string>>(new Set());
   const [over, setOver] = useState(false);
   const [fileName, setFileName] = useState('');
+  const [sheets, setSheets] = useState<Sheet[] | null>(null);
   const [label, setLabel] = useState('Guest list');
 
   useEffect(() => {
@@ -45,12 +48,14 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
   async function onFile(f: File | undefined) {
     if (!f) return;
     setFileName(f.name);
-    const t = await f.text();
     if (/\.json$/i.test(f.name)) {
       toast('That looks like a project file. Use "Open layout or backup" instead.');
       return;
     }
-    useParsed(parseCsv(t));
+    const r = await loadTable(f);
+    if ('error' in r) toast(r.error);
+    else if ('sheets' in r) setSheets(r.sheets);
+    else useParsed(r.parsed);
   }
   function onPasteNext() {
     const r = parsePaste(text);
@@ -188,8 +193,8 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
           >
             <Icon name="upload" />
             <b>Drop your Joy export here, or choose a file</b>
-            <span className="muted">In Joy: Guest List → Export All Guests. Any CSV from Zola, The Knot, Google Sheets or Excel works too.</span>
-            <input type="file" accept=".csv,.tsv,.txt,text/csv" onChange={(e) => void onFile(e.target.files?.[0])} style={{ maxWidth: 260 }} />
+            <span className="muted">In Joy: Guest List → Export All Guests. Excel (.xlsx) and CSV files from Zola, The Knot or Google Sheets work too.</span>
+            <input type="file" accept={ACCEPT} onChange={(e) => void onFile(e.target.files?.[0])} style={{ maxWidth: 260 }} />
           </label>
           <label className="field">
             <span>Or paste names or spreadsheet rows</span>
@@ -201,6 +206,15 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
               placeholder={'College friends:\nAlex & Sam Rivera\nPriya Patel +1\n\nWork:\nJordan Lee'}
             />
           </label>
+          {sheets && (
+            <SheetPicker
+              sheets={sheets}
+              onPick={(sh) => {
+                setSheets(null);
+                useParsed(sheetToParsed(sh));
+              }}
+            />
+          )}
           <PrivacyNote />
         </>
       )}

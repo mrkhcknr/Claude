@@ -12,7 +12,7 @@ export interface Filters {
   tags: string[];
   tableId: Id | '';
   meal: string;
-  flags: ('dietary' | 'child' | 'accessible' | 'noTies' | 'plusOne' | 'pinned' | 'discrepancy' | 'noMeal')[];
+  flags: ('dietary' | 'child' | 'noTies' | 'plusOne' | 'pinned' | 'discrepancy' | 'noMeal')[];
   /** In the plan and graph: hide non-matching guests instead of dimming them. */
   hide: boolean;
 }
@@ -59,7 +59,6 @@ export function guestMatcher(p: Project, f: Filters, tableOf: Map<Id, Id>, disc?
     for (const fl of f.flags) {
       if (fl === 'dietary' && !g.dietary.trim()) return false;
       if (fl === 'child' && !g.child) return false;
-      if (fl === 'accessible' && !g.accessible) return false;
       if (fl === 'pinned' && !g.pinned) return false;
       if (fl === 'plusOne' && !/plus-one|^guest of /i.test(`${g.notes} ${g.name}`)) return false;
       if (fl === 'noTies' && tied?.has(g.id)) return false;
