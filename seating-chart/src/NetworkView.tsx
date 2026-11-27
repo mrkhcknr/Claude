@@ -20,93 +20,129 @@ interface N extends SimulationNodeDatum {
   guest?: Guest;
 }
 interface L extends SimulationLinkDatum<N> {
-  kind: Bond | 'party' | 'hub';
+  kind: Bond | 'party' | 'hub' | 'hub2';
   seat?: SeatRule;
   rid?: string;
 }
 
-const LINK_DIST: Record<L['kind'], number> = { hub: 46, party: 22, partner: 20, family: 30, friend: 36, coworker: 48, acquaintance: 70, tension: 200 };
-const LINK_STR: Record<L['kind'], number> = { hub: 0.22, party: 1, partner: 1, family: 0.9, friend: 0.8, coworker: 0.6, acquaintance: 0.35, tension: 0.12 };
+const LINK_DIST: Record<L['kind'], number> = { hub2: 140, hub: 46, party: 22, partner: 20, family: 30, friend: 36, coworker: 48, acquaintance: 70, tension: 200 };
+const LINK_STR: Record<L['kind'], number> = { hub2: 0.02, hub: 0.25, party: 1, partner: 1, family: 0.9, friend: 0.8, coworker: 0.6, acquaintance: 0.35, tension: 0.12 };
 
 /**
- * Keep group bubbles from overlapping: guests are pushed out of the bubbles of groups they're not in,
- * and whole groups push each other apart. Guests in several groups stay where they are (they bridge).
+ * Each guest's home group, so bubbles never overlap: the most specific (smallest) tag they have,
+ * skipping catch-alls like "Friends" unless that's their only tag. Tags with exactly the same
+ * members share one bubble ("NYC Friends · NYC Gays").
  */
-function forceGroups(nodes: Map<string, N>) {
-  const PAD = 34;
-  let alpha = 1;
-  const guestsOf = new Map<string, N[]>();
-  const tagsOf = new Map<N, Set<string>>();
-  for (const n of nodes.values()) {
-    if (!n.guest) continue;
-    const ts = new Set(groupTags(n.guest));
-    tagsOf.set(n, ts);
-    for (const t of ts) guestsOf.set(t, [...(guestsOf.get(t) ?? []), n]);
+export function homeGroups(guests: Guest[], labels: Map<string, string>) {
+  const members = new Map<string, Id[]>();
+  for (const g of guests) for (const t of groupTags(g)) members.set(t, [...(members.get(t) ?? []), g.id]);
+  // merge tags with identical members
+  const bySig = new Map<string, string[]>();
+  for (const [t, m] of members) {
+    const sig = [...m].sort().join();
+    bySig.set(sig, [...(bySig.get(sig) ?? []), t]);
   }
-  const groups = [...guestsOf.entries()].filter(([, m]) => m.length > 1);
-  const force = () => {
-    const circles = groups.map(([t, m]) => {
-      let x = 0,
-        y = 0;
-      for (const n of m) (x += n.x!), (y += n.y!);
-      x /= m.length;
-      y /= m.length;
-      let r = 0;
-      for (const n of m) r = Math.max(r, Math.hypot(n.x! - x, n.y! - y));
-      return { t, m, x, y, r: r + PAD };
-    });
-    const k = 0.5 * alpha;
-    // guests outside a group's bubble
-    for (const c of circles)
-      for (const [n, ts] of tagsOf) {
-        if (ts.has(c.t)) continue;
-        const dx = n.x! - c.x,
-          dy = n.y! - c.y;
-        const d = Math.hypot(dx, dy) || 0.01;
-        const min = c.r + 10;
-        if (d < min) {
-          const f = ((min - d) / d) * k;
-          n.vx! += dx * f;
-          n.vy! += dy * f;
-        }
-      }
-    // bubbles apart (moving only members that belong to just that one of the pair)
-    for (let i = 0; i < circles.length; i++)
-      for (let j = i + 1; j < circles.length; j++) {
-        const a = circles[i],
-          b = circles[j];
-        const dx = b.x - a.x,
-          dy = b.y - a.y;
-        const d = Math.hypot(dx, dy) || 0.01;
-        const min = a.r + b.r;
-        if (d >= min) continue;
-        const f = ((min - d) / d) * k * 0.25;
-        for (const n of a.m) if (!tagsOf.get(n)!.has(b.t)) (n.vx! -= dx * f), (n.vy! -= dy * f);
-        for (const n of b.m) if (!tagsOf.get(n)!.has(a.t)) (n.vx! += dx * f), (n.vy! += dy * f);
-      }
-  };
-  // d3 passes alpha on each tick
-  return Object.assign((a: number) => {
-    alpha = a;
-    force();
-  }, { initialize: () => {} });
+  const keyOf = new Map<string, string>();
+  const clusters = new Map<string, { label: string; tags: string[]; members: Id[] }>();
+  for (const tags of bySig.values()) {
+    tags.sort();
+    const key = tags[0];
+    for (const t of tags) keyOf.set(t, key);
+    clusters.set(key, { label: tags.map((t) => labels.get(t) ?? t).join(' · '), tags, members: members.get(key)! });
+  }
+  const big = Math.max(40, guests.length * 0.4);
+  // a one-word tag that shows up inside other tags' names ("family" in "Hickner Family") is a catch-all
+  const all = [...members.keys()];
+  const generic = (k: string) => clusters.get(k)!.tags.every((t) => !t.includes(' ') && all.some((o) => o !== t && new RegExp(`(^|\\s)${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`).test(o)));
+  const home = new Map<Id, string>();
+  for (const g of guests) {
+    const cs = [...new Set(groupTags(g).map((t) => keyOf.get(t)!))].map((k) => ({ k, n: clusters.get(k)!.members.length }));
+    if (!cs.length) continue;
+    const specific = cs.filter((c) => c.n <= big && !generic(c.k));
+    const pick = (specific.length ? specific : cs).sort((a, b) => a.n - b.n || a.k.localeCompare(b.k))[0];
+    home.set(g.id, pick.k);
+  }
+  // drop bubbles nobody calls home (they still pull weakly through their members)
+  for (const k of [...clusters.keys()]) if (![...home.values()].includes(k) && clusters.get(k)!.members.length > big) clusters.delete(k);
+  return { home, clusters };
 }
 
-/** Nudge group labels up until none overlap. */
-function placeLabels(items: { tag: string; x: number; y: number; w: number }[], obstacles: { x: number; y: number }[]) {
-  const placed: { x: number; y: number; w: number; tag: string }[] = [];
-  for (const it of [...items].sort((a, b) => a.y - b.y)) {
-    let y = it.y;
-    for (let tries = 0; tries < 40; tries++) {
-      const hit = placed.find((p) => Math.abs(p.x - it.x) < (p.w + it.w) / 2 + 6 && Math.abs(p.y - y) < 20);
-      // a guest dot or its name under the label
-      const node = obstacles.find((o) => Math.abs(o.x - it.x) < it.w / 2 + 10 && y - 14 < o.y + 24 && o.y - 12 < y + 4);
-      if (!hit && !node) break;
-      y = Math.min(hit ? hit.y - 21 : y, node ? node.y - 18 : y);
-    }
-    placed.push({ ...it, y });
+/**
+ * Keep home-group bubbles apart: guests are pushed out of other groups' bubbles and whole groups push
+ * each other away. Groups are disjoint, and each nudge is capped, so the layout can't run away.
+ */
+function forceGroups(nodes: Map<string, N>, home: Map<Id, string>) {
+  const PAD = 30,
+    CAP = 4;
+  const byGroup = new Map<string, N[]>();
+  const guestNodes: N[] = [];
+  for (const n of nodes.values()) {
+    if (!n.guest) continue;
+    guestNodes.push(n);
+    const h = home.get(n.id);
+    if (h) byGroup.set(h, [...(byGroup.get(h) ?? []), n]);
   }
-  return new Map(placed.map((p) => [p.tag, p.y]));
+  const push = (n: N, dx: number, dy: number) => {
+    const m = Math.hypot(dx, dy);
+    const s = m > CAP ? CAP / m : 1;
+    n.vx! += dx * s;
+    n.vy! += dy * s;
+  };
+  return Object.assign(
+    (alpha: number) => {
+      const circles = [...byGroup.entries()]
+        .filter(([, m]) => m.length > 1)
+        .map(([t, m]) => {
+          let x = 0,
+            y = 0;
+          for (const n of m) (x += n.x!), (y += n.y!);
+          x /= m.length;
+          y /= m.length;
+          // radius from the typical spread, so one stray member doesn't inflate the bubble
+          const ds = m.map((n) => Math.hypot(n.x! - x, n.y! - y)).sort((a, b) => a - b);
+          return { t, m, x, y, r: ds[Math.floor(ds.length * 0.8)] + PAD };
+        });
+      const k = 0.4 * alpha;
+      for (const c of circles)
+        for (const n of guestNodes) {
+          if (home.get(n.id) === c.t) continue;
+          const dx = n.x! - c.x,
+            dy = n.y! - c.y;
+          const d = Math.hypot(dx, dy) || 0.01;
+          if (d < c.r + 8) push(n, (dx / d) * (c.r + 8 - d) * k, (dy / d) * (c.r + 8 - d) * k);
+        }
+      for (let i = 0; i < circles.length; i++)
+        for (let j = i + 1; j < circles.length; j++) {
+          const a = circles[i],
+            b = circles[j];
+          const dx = b.x - a.x,
+            dy = b.y - a.y;
+          const d = Math.hypot(dx, dy) || 0.01;
+          const over = a.r + b.r - d;
+          if (over <= 0) continue;
+          const f = over * k * 0.15;
+          for (const n of a.m) push(n, (-dx / d) * f, (-dy / d) * f);
+          for (const n of b.m) push(n, (dx / d) * f, (dy / d) * f);
+        }
+    },
+    { initialize: () => {} },
+  );
+}
+
+/** Put each group label just above (or else just below) its bubble, avoiding other labels and guests. */
+function placeLabels(items: { tag: string; x: number; top: number; bottom: number; w: number; h: number }[], obstacles: { x: number; y: number }[]) {
+  const placed: { x: number; y: number; w: number; h: number }[] = [];
+  const out = new Map<string, number>();
+  const free = (x: number, y: number, w: number, h: number) =>
+    !placed.some((p) => Math.abs(p.x - x) < (p.w + w) / 2 + 4 && Math.abs(p.y - y) < (p.h + h) / 2 + 2) &&
+    !obstacles.some((o) => Math.abs(o.x - x) < w / 2 + 8 && o.y > y - h - 8 && o.y < y + 22);
+  for (const it of [...items].sort((a, b) => a.top - b.top)) {
+    const cands = [it.top, it.bottom, it.top - it.h, it.bottom + it.h, it.top - 2 * it.h, it.bottom + 2 * it.h];
+    const y = cands.find((c) => free(it.x, c, it.w, it.h)) ?? it.top;
+    placed.push({ x: it.x, y, w: it.w, h: it.h });
+    out.set(it.tag, y);
+  }
+  return out;
 }
 
 // positions survive view switches
@@ -142,6 +178,7 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
   const guests = useMemo(() => project.guests.filter((g) => (includeDeclined || g.rsvp !== 'no') && (!filters.hide || !matcher || matcher(g))), [project.guests, includeDeclined, filters.hide, matcher]);
   const tagList = useMemo(() => allTags(project), [project]);
   const tagColor = useMemo(() => new Map(tagList.map((t, i) => [t.label.toLowerCase(), tagColorFor(project, t.label, i)])), [tagList, project]);
+  const homes = useMemo(() => homeGroups(guests, new Map(tagList.map((t) => [t.label.toLowerCase(), t.label]))), [guests, tagList]);
   const tableIndex = useMemo(() => new Map(project.tables.map((t, i) => [t.id, i])), [project.tables]);
 
   // degree for "no ties" highlighting
@@ -169,15 +206,12 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
       nodes.set(g.id, { id: g.id, guest: g, x: prev?.x ?? W / 2 + r * Math.cos(a), y: prev?.y ?? H / 2 + r * Math.sin(a), vx: 0, vy: 0 });
     });
     const links: L[] = [];
-    const tagMembers = new Map<string, string[]>();
-    for (const g of guests) for (const t of groupTags(g)) tagMembers.set(t, [...(tagMembers.get(t) ?? []), g.id]);
-    for (const [t, mem] of tagMembers) {
-      if (mem.length < 2) continue;
-      const hid = 'hub:' + t;
+    // one hub per home group pulls its members together; other (specific) tags pull weakly, so related bubbles sit near each other
+    for (const [key, c] of homes.clusters) {
+      const hid = 'hub:' + key;
       const prev = old.get(hid);
-      const hub: N = { id: hid, hub: t, x: prev?.x ?? W / 2 + (Math.random() - 0.5) * 300, y: prev?.y ?? H / 2 + (Math.random() - 0.5) * 300 };
-      nodes.set(hid, hub);
-      for (const m of mem) links.push({ source: m, target: hid, kind: 'hub' });
+      nodes.set(hid, { id: hid, hub: key, x: prev?.x ?? W / 2 + (Math.random() - 0.5) * 300, y: prev?.y ?? H / 2 + (Math.random() - 0.5) * 300 });
+      for (const m of c.members) if (ids.has(m)) links.push({ source: m, target: hid, kind: homes.home.get(m) === key ? 'hub' : 'hub2' });
     }
     const parties = new Map<string, string[]>();
     for (const g of guests) if (g.party) parties.set(g.party, [...(parties.get(g.party) ?? []), g.id]);
@@ -194,7 +228,7 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
       .force('link', linkForce)
       .force('charge', forceManyBody<N>().strength((d) => (d.hub ? -10 : -70)).distanceMax(420))
       .force('collide', forceCollide<N>((d) => (d.hub ? 0 : 17)))
-      .force('groups', forceGroups(nodes))
+      .force('groups', forceGroups(nodes, homes.home))
       .force('center', forceCenter(W / 2, H / 2).strength(0.04))
       .force('x', forceX<N>(W / 2).strength(0.025))
       .force('y', forceY<N>(H / 2).strength(0.025))
@@ -246,7 +280,7 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
       bottom = 60;
     const aw = w - side - 24,
       ah = h - top - bottom;
-    const k = clamp(Math.min(aw / (x1 - x0), ah / (y1 - y0)), 0.25, 1.4);
+    const k = clamp(Math.min(aw / (x1 - x0), ah / (y1 - y0)), 0.15, 1.4);
     setCam({ k, x: 12 + (aw - (x1 - x0) * k) / 2 - x0 * k, y: top + (ah - (y1 - y0) * k) / 2 - y0 * k });
   }
 
@@ -272,7 +306,7 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
         py = e.clientY - r.top;
       userMoved.current = true;
       setCam((c) => {
-        const k = clamp(c.k * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), 0.25, 4);
+        const k = clamp(c.k * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), 0.15, 4);
         return { k, x: px - ((px - c.x) * k) / c.k, y: py - ((py - c.y) * k) / c.k };
       });
     };
@@ -291,18 +325,28 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
 
   // hulls per tag
   const hulls = useMemo(() => {
-    const out: { tag: string; label: string; pts: { x: number; y: number }[]; color: string }[] = [];
-    for (const t of tagList) {
-      const key = t.label.toLowerCase();
-      const pts = gnodes.filter((n) => groupTags(n.guest!).includes(key)).map((n) => ({ x: n.x!, y: n.y! }));
-      if (pts.length) out.push({ tag: key, label: t.label, pts: hull(pts), color: tagColor.get(key)! });
+    const out: { tag: string; label: string; addAs: string; pts: { x: number; y: number }[]; color: string }[] = [];
+    for (const [key, c] of homes.clusters) {
+      const pts = gnodes.filter((n) => homes.home.get(n.id) === key).map((n) => ({ x: n.x!, y: n.y! }));
+      if (pts.length) out.push({ tag: key, label: c.label, addAs: tagList.find((t) => t.label.toLowerCase() === key)?.label ?? key, pts: hull(pts), color: tagColor.get(key) ?? 'var(--none)' });
     }
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tagList, tagColor, gnodes.map((n) => `${n.x?.toFixed(0)},${n.y?.toFixed(0)}`).join()]);
+  }, [homes, tagList, tagColor, gnodes.map((n) => `${n.x?.toFixed(0)},${n.y?.toFixed(0)}`).join()]);
 
+  // labels stay readable when zoomed out
+  const labelFs = Math.max(17, 12 / cam.k);
   const labelY = placeLabels(
-    hulls.filter((h) => h.pts.length > 1).map((h) => ({ tag: h.tag, x: h.pts.reduce((a, p) => a + p.x, 0) / h.pts.length, y: Math.min(...h.pts.map((p) => p.y)) - 30, w: h.label.length * 8.6 })),
+    hulls
+      .filter((h) => h.pts.length > 1)
+      .map((h) => ({
+        tag: h.tag,
+        x: h.pts.reduce((a, p) => a + p.x, 0) / h.pts.length,
+        top: Math.min(...h.pts.map((p) => p.y)) - 24,
+        bottom: Math.max(...h.pts.map((p) => p.y)) + 24 + labelFs + 14,
+        w: h.label.length * labelFs * 0.5,
+        h: labelFs + 4,
+      })),
     gnodes.map((n) => ({ x: n.x!, y: n.y! })),
   );
 
@@ -312,8 +356,8 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
       const t = analysis.tableOf.get(g.id);
       return t ? hueColor(tableIndex.get(t) ?? 0, 0.66, 0.14) : 'var(--none)';
     }
-    const t = groupTags(g)[0];
-    return t ? tagColor.get(t)! : 'var(--none)';
+    const t = homes.home.get(g.id);
+    return t ? tagColor.get(t) ?? 'var(--none)' : 'var(--none)';
   }
 
   // ---------- pointer interactions ----------
@@ -418,7 +462,7 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
         const p = { x: n.x!, y: n.y! };
         const mine = groupTags(n.guest!);
         const h = hulls.find((h) => !mine.includes(h.tag) && h.pts.length > 2 && inPoly(p, padPoly(h.pts, 18)));
-        if (h) setOffer({ guestId: n.id, tag: h.label, x: e.clientX, y: e.clientY });
+        if (h) setOffer({ guestId: n.id, tag: h.addAs, x: e.clientX, y: e.clientY });
       }
       return;
     }
@@ -469,13 +513,13 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
       <svg ref={svg} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} style={{ cursor: brush === 'lasso' ? 'crosshair' : 'default' }} role="application" aria-label="Social graph">
         <g transform={`translate(${cam.x} ${cam.y}) scale(${cam.k})`}>
           {hulls.map((h) => (
-            <g key={h.tag} className={`hull ${dropGroup === h.label ? 'drop' : ''}`}>
+            <g key={h.tag} className={`hull ${dropGroup && dropGroup.toLowerCase() === h.tag ? 'drop' : ''}`}>
               <path d={hullPath(h.pts)} fill={h.color} stroke={h.color} strokeWidth={44} />
             </g>
           ))}
           {hulls.map((h) =>
             h.pts.length > 1 ? (
-              <text key={h.tag} className="hull-label" x={h.pts.reduce((a, p) => a + p.x, 0) / h.pts.length} y={labelY.get(h.tag)} textAnchor="middle">
+              <text key={h.tag} className="hull-label" style={{ fontSize: labelFs }} x={h.pts.reduce((a, p) => a + p.x, 0) / h.pts.length} y={labelY.get(h.tag)} textAnchor="middle">
                 {h.label}
               </text>
             ) : null,
