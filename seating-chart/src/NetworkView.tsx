@@ -63,6 +63,20 @@ export function homeGroups(guests: Guest[], labels: Map<string, string>) {
     const pick = (specific.length ? specific : cs).sort((a, b) => a.n - b.n || a.k.localeCompare(b.k))[0];
     home.set(g.id, pick.k);
   }
+  // a household lives in one bubble (the most specific one among its members), so couples aren't stretched across two
+  const byParty = new Map<string, Guest[]>();
+  for (const g of guests) if (g.party) byParty.set(g.party, [...(byParty.get(g.party) ?? []), g]);
+  for (const m of byParty.values()) {
+    if (m.length < 2) continue;
+    const ks = m.map((g) => home.get(g.id)).filter((k): k is string => !!k);
+    if (!ks.length) continue;
+    const best = ks.sort((a, b) => clusters.get(a)!.members.length - clusters.get(b)!.members.length)[0];
+    for (const g of m) {
+      home.set(g.id, best);
+      const c = clusters.get(best)!;
+      if (!c.members.includes(g.id)) c.members = [...c.members, g.id];
+    }
+  }
   // drop bubbles nobody calls home (they still pull weakly through their members)
   for (const k of [...clusters.keys()]) if (![...home.values()].includes(k) && clusters.get(k)!.members.length > big) clusters.delete(k);
   return { home, clusters };
@@ -73,7 +87,7 @@ export function homeGroups(guests: Guest[], labels: Map<string, string>) {
  * each other away. Groups are disjoint, and each nudge is capped, so the layout can't run away.
  */
 function forceGroups(nodes: Map<string, N>, home: Map<Id, string>) {
-  const PAD = 30,
+  const PAD = 46,
     CAP = 4;
   const byGroup = new Map<string, N[]>();
   const guestNodes: N[] = [];
@@ -101,7 +115,8 @@ function forceGroups(nodes: Map<string, N>, home: Map<Id, string>) {
           y /= m.length;
           // radius from the typical spread, so one stray member doesn't inflate the bubble
           const ds = m.map((n) => Math.hypot(n.x! - x, n.y! - y)).sort((a, b) => a - b);
-          return { t, m, x, y, r: ds[Math.floor(ds.length * 0.8)] + PAD };
+          // full extent of the group, so long thin bubbles don't poke into their neighbours
+          return { t, m, x, y, r: ds[ds.length - 1] + PAD };
         });
       const k = 0.4 * alpha;
       for (const c of circles)
@@ -146,6 +161,9 @@ function placeLabels(items: { tag: string; x: number; top: number; bottom: numbe
   return out;
 }
 
+/** Room a guest needs: their dot plus the first name written under it (about 6.5px per letter). */
+const labelRadius = (d: N) => Math.max(18, (firstName(d.guest?.name ?? '').length * 6.5) / 2 + 8);
+
 // positions survive view switches
 const memo = new Map<string, { x: number; y: number }>();
 
@@ -178,6 +196,7 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
   const nodesRef = useRef<Map<string, N>>(new Map());
   const size = useRef({ w: 800, h: 600 });
   const selected = new Set(selection?.type === 'guest' ? selection.ids : []);
+  const shownLabels = new Map<string, { text: string; fs: number }>();
 
   const matcher = useMemo(() => guestMatcher(project, filters, analysis.tableOf, analysis.discByGuest), [project, filters, analysis.tableOf]);
   const guests = useMemo(() => project.guests.filter((g) => (includeDeclined || g.rsvp !== 'no') && (!filters.hide || !matcher || matcher(g))), [project.guests, includeDeclined, filters.hide, matcher]);
@@ -228,15 +247,19 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
     for (const r of project.relations) if (ids.has(r.a) && ids.has(r.b)) links.push({ source: r.a, target: r.b, kind: r.kind, seat: effectiveSeat(r), rid: r.id });
     nodesRef.current = nodes;
 
+    // a group's members sit further from its centre the bigger it is, so large groups aren't squeezed
+    const hubDist = new Map<string, number>();
+    for (const [key, c] of homes.clusters) hubDist.set('hub:' + key, 24 + 11 * Math.sqrt(c.members.filter((m) => homes.home.get(m) === key).length));
     const linkForce = forceLink<N, L>(links)
       .id((d) => d.id)
-      .distance((l) => (l.seat === 'apart' ? 260 : l.seat === 'beside' ? 20 : LINK_DIST[l.kind]))
+      .distance((l) => (l.kind === 'hub' ? hubDist.get((l.target as N).id ?? String(l.target)) ?? 46 : l.seat === 'apart' ? 260 : l.seat === 'beside' ? 20 : LINK_DIST[l.kind]))
       .strength((l) => (l.seat === 'apart' ? 0.25 : l.seat === 'beside' ? 1 : LINK_STR[l.kind]));
     sim.current?.stop();
     const s = forceSimulation<N, L>([...nodes.values()])
       .force('link', linkForce)
-      .force('charge', forceManyBody<N>().strength((d) => (d.hub ? -10 : -70)).distanceMax(420))
-      .force('collide', forceCollide<N>((d) => (d.hub ? 0 : 17)))
+      .force('charge', forceManyBody<N>().strength((d) => (d.hub ? -10 : -110)).distanceMax(480))
+      // each guest keeps room for their dot and the first name under it
+      .force('collide', forceCollide<N>((d) => (d.hub ? 0 : labelRadius(d))).strength(0.9).iterations(2))
       .force('groups', forceGroups(nodes, homes.home))
       .force('center', forceCenter(W / 2, H / 2).strength(0.04))
       .force('x', forceX<N>(W / 2).strength(0.025))
@@ -672,6 +695,33 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
           })}
           {rubber && <line className="rubber" x1={rubber.from.x} y1={rubber.from.y} x2={rubber.over ? byId.get(rubber.over)!.x : rubber.to.x} y2={rubber.over ? byId.get(rubber.over)!.y : rubber.to.y} />}
           {/* nodes */}
+          {(() => {
+            // names: readable size at any zoom; when zoomed out, show only names that fit without overlapping
+            const fs = Math.max(11, 9 / cam.k);
+            const label = (n: N) => (selected.has(n.id) || cam.k > 1.4 ? n.guest!.name : firstName(n.guest!.name));
+            const order = [...gnodes].sort(
+              (a, b) =>
+                Number(selected.has(b.id)) - Number(selected.has(a.id)) ||
+                Number(!matcher || matcher(b.guest!)) - Number(!matcher || matcher(a.guest!)) ||
+                Number(tied.has(b.id)) - Number(tied.has(a.id)),
+            );
+            const boxes: { x0: number; x1: number; y0: number; y1: number }[] = [];
+            const dots = gnodes.map((n) => ({ x: n.x!, y: n.y!, id: n.id }));
+            shownLabels.clear();
+            for (const n of order) {
+              // generous estimate of the text's box (letters + outline + line height)
+              const w = label(n).length * fs * 0.64 + 6,
+                r = selected.has(n.id) ? 10 : 8;
+              const box = { x0: n.x! - w / 2, x1: n.x! + w / 2, y0: n.y! + r, y1: n.y! + r + 6 + fs * 1.3 };
+              const hit =
+                boxes.some((b) => box.x0 < b.x1 && b.x0 < box.x1 && box.y0 < b.y1 && b.y0 < box.y1) ||
+                dots.some((d) => d.id !== n.id && d.x > box.x0 - 12 && d.x < box.x1 + 12 && d.y > box.y0 - 12 && d.y < box.y1 + 12);
+              if (hit && !selected.has(n.id)) continue;
+              boxes.push(box);
+              shownLabels.set(n.id, { text: label(n), fs });
+            }
+            return null;
+          })()}
           {gnodes.map((n) => {
             const g = n.guest!;
             const match = matcher ? matcher(g) : true;
@@ -681,9 +731,9 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
             return (
               <g key={n.id} className={`node ${sel ? 'sel' : ''} ${iso ? 'isolated' : ''} ${!match ? 'dim' : ''} ${rubber?.over === n.id ? 'link-target' : ''}`} data-node={n.id} transform={`translate(${n.x} ${n.y})`}>
                 <circle r={r} fill={colorOf(g)} style={{ cursor: brush === 'move' ? 'grab' : brush === 'lasso' ? 'crosshair' : 'pointer' }} />
-                {(cam.k > 0.5 || sel) && (
-                  <text y={r + 12} textAnchor="middle">
-                    {sel || cam.k > 1.4 ? g.name : firstName(g.name)}
+                {shownLabels.has(n.id) && (
+                  <text y={r + 2 + shownLabels.get(n.id)!.fs * 0.9} textAnchor="middle" style={{ fontSize: shownLabels.get(n.id)!.fs }}>
+                    {shownLabels.get(n.id)!.text}
                   </text>
                 )}
                 <title>
