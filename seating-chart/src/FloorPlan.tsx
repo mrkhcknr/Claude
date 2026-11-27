@@ -28,7 +28,7 @@ import {
   type TablePreset,
 } from './store';
 import { CHAIR_R, isCircular, projectBounds, rotate, seatLocal, snapToWall, tableFootprint, toWorld, type Pt } from './geometry';
-import { useDrag, startGuestDrag } from './dnd';
+import { useDrag, startGuestDrag, cancelGuestDrag } from './dnd';
 import { useFilters, guestMatcher, allTags } from './filters';
 import { tagColor as tagColorFor } from './tags';
 import { buildAffinity, groupTags, type Analysis } from './scoring';
@@ -191,15 +191,65 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
     return () => window.removeEventListener('plan:fit', h);
   });
 
+  // ---------- two-finger pinch & pan ----------
+  // Every finger is tracked on the whole canvas (capture phase), so a first finger that lands on a
+  // table, chair or guest still counts. A second finger cancels whatever the first one started.
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el) return;
+    const ptrs = pointers.current;
+    const down = (e: PointerEvent) => {
+      if (e.pointerType !== 'touch') return;
+      ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (ptrs.size === 2) {
+        const [a, b] = [...ptrs.values()];
+        cancelGuestDrag();
+        pinchRef.current = { d: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), c: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, cam: getState().camera };
+        setG({ t: 'pinch' });
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    };
+    const move = (e: PointerEvent) => {
+      if (!ptrs.has(e.pointerId)) return;
+      ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const st = pinchRef.current;
+      if (!st || ptrs.size < 2 || !svg.current) return;
+      e.preventDefault();
+      const [a, b] = [...ptrs.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const r = svg.current.getBoundingClientRect();
+      const scale = clamp(st.cam.scale * (d / st.d), MIN_SCALE, MAX_SCALE);
+      const wx = (st.c.x - r.left) / st.cam.scale + st.cam.x,
+        wy = (st.c.y - r.top) / st.cam.scale + st.cam.y;
+      setCamera({ scale, x: wx - (c.x - r.left) / scale, y: wy - (c.y - r.top) / scale });
+    };
+    const up = (e: PointerEvent) => {
+      if (!ptrs.delete(e.pointerId)) return;
+      if (ptrs.size < 2 && pinchRef.current) {
+        pinchRef.current = null;
+        // lifting one finger ends the pinch; the remaining finger doesn't start anything new
+        if (g.current?.t === 'pinch' && ptrs.size === 0) setG(null);
+      }
+      if (ptrs.size === 0 && g.current?.t === 'pinch') setG(null);
+    };
+    el.addEventListener('pointerdown', down, { capture: true });
+    window.addEventListener('pointermove', move, { capture: true, passive: false });
+    window.addEventListener('pointerup', up, { capture: true });
+    window.addEventListener('pointercancel', up, { capture: true });
+    return () => {
+      el.removeEventListener('pointerdown', down, { capture: true });
+      window.removeEventListener('pointermove', move, { capture: true });
+      window.removeEventListener('pointerup', up, { capture: true });
+      window.removeEventListener('pointercancel', up, { capture: true });
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // ---------- pointer handling ----------
   function onPointerDown(e: React.PointerEvent<SVGSVGElement>) {
-    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointers.current.size === 2) {
-      const [a, b] = [...pointers.current.values()];
-      pinchRef.current = { d: Math.hypot(a.x - b.x, a.y - b.y), c: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, cam: getState().camera };
-      setG({ t: 'pinch' });
-      return;
-    }
+    if (pinchRef.current) return;
     const target = e.target as Element;
     const p = toWorldPt(e.clientX, e.clientY);
     const alt = e.altKey;
@@ -323,24 +373,12 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
   }
 
   function onPointerMove(e: React.PointerEvent<SVGSVGElement>) {
-    if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const p = toWorldPt(e.clientX, e.clientY);
     if (tool !== 'select' && tool !== 'pan') setCursor(p);
     const cur = g.current;
     if (!cur) return;
     const alt = e.altKey;
-    if (cur.t === 'pinch' && pinchRef.current && pointers.current.size === 2) {
-      const [a, b] = [...pointers.current.values()];
-      const d = Math.hypot(a.x - b.x, a.y - b.y);
-      const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-      const r = svg.current!.getBoundingClientRect();
-      const st = pinchRef.current;
-      const scale = clamp(st.cam.scale * (d / st.d), MIN_SCALE, MAX_SCALE);
-      const wx = (st.c.x - r.left) / st.cam.scale + st.cam.x,
-        wy = (st.c.y - r.top) / st.cam.scale + st.cam.y;
-      setCamera({ scale, x: wx - (c.x - r.left) / scale, y: wy - (c.y - r.top) / scale });
-      return;
-    }
+    if (cur.t === 'pinch') return;
     if (cur.t === 'pan') {
       setCamera({ ...cur.cam, x: cur.cam.x - (e.clientX - cur.sx) / cur.cam.scale, y: cur.cam.y - (e.clientY - cur.sy) / cur.cam.scale });
       return;
@@ -429,9 +467,9 @@ export function FloorPlan({ analysis }: { analysis: Analysis }) {
   }
 
   function onPointerUp(e: React.PointerEvent<SVGSVGElement>) {
-    pointers.current.delete(e.pointerId);
-    if (pointers.current.size < 2) pinchRef.current = null;
+    void e;
     const cur = g.current;
+    if (cur?.t === 'pinch') return;
     if (cur?.t === 'marquee') {
       const x0 = Math.min(cur.start.x, cur.cur.x),
         x1 = Math.max(cur.start.x, cur.cur.x),

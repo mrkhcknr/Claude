@@ -66,6 +66,12 @@ export const sameTarget = (a: DropTarget | null, b: DropTarget | null) => JSON.s
  * Start a potential guest drag from a pointerdown. Calls onClick instead if the pointer
  * doesn't move past a small threshold. Works for mouse, pen and touch.
  */
+let cancelActive: (() => void) | null = null;
+/** Abandon a guest drag in progress (e.g. a second finger turned it into a pinch). */
+export function cancelGuestDrag() {
+  cancelActive?.();
+}
+
 export function startGuestDrag(e: React.PointerEvent | PointerEvent, guestIds: Id[], label: string, onClick?: (ev: PointerEvent) => void) {
   if (e.button !== 0) return;
   const sx = e.clientX,
@@ -99,6 +105,14 @@ export function startGuestDrag(e: React.PointerEvent | PointerEvent, guestIds: I
     const target = readTarget(ev.clientX, ev.clientY);
     useDrag.setState({ active: false, over: null, guestIds: [] });
     if (target && ev.type === 'pointerup') drop(guestIds, target);
+  };
+  cancelActive = () => {
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+    window.removeEventListener('pointercancel', up);
+    document.body.classList.remove('is-dragging');
+    useDrag.setState({ active: false, over: null, guestIds: [] });
+    cancelActive = null;
   };
   window.addEventListener('pointermove', move, { passive: false });
   window.addEventListener('pointerup', up);

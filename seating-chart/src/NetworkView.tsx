@@ -163,6 +163,8 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
   // phones/tablets: the groups & filters panel opens as a sheet
   const [sideOpen, setSideOpen] = useState(false);
   const [cam, setCam] = useState({ x: 0, y: 0, k: 1 });
+  const camRef = useRef(cam);
+  camRef.current = cam;
   /** Once the person pans or zooms, stop re-fitting the view for them. */
   const userMoved = useRef(false);
   const [, setTick] = useState(0);
@@ -315,6 +317,64 @@ export function NetworkView({ analysis }: { analysis: Analysis }) {
     };
     el.addEventListener('wheel', wheel, { passive: false });
     return () => el.removeEventListener('wheel', wheel);
+  }, []);
+
+  // two-finger pinch to zoom (and pan) on touch screens
+  useEffect(() => {
+    const el = wrap.current;
+    if (!el) return;
+    const ptrs = new Map<number, { x: number; y: number }>();
+    let start: { d: number; c: { x: number; y: number }; cam: { x: number; y: number; k: number } } | null = null;
+    const down = (e: PointerEvent) => {
+      if (e.pointerType !== 'touch') return;
+      ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (ptrs.size === 2) {
+        const [a, b] = [...ptrs.values()];
+        const g = gest.current;
+        if (g?.t === 'node') {
+          g.n.fx = null;
+          g.n.fy = null;
+        }
+        gest.current = null;
+        setRubber(null);
+        setLasso(null);
+        userMoved.current = true;
+        start = { d: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)), c: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, cam: camRef.current };
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    };
+    const move = (e: PointerEvent) => {
+      if (!ptrs.has(e.pointerId)) return;
+      ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (!start || ptrs.size < 2) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const [a, b] = [...ptrs.values()];
+      const r = el.getBoundingClientRect();
+      const st = start;
+      const k = clamp(st.cam.k * (Math.hypot(a.x - b.x, a.y - b.y) / st.d), 0.15, 4);
+      const c = { x: (a.x + b.x) / 2 - r.left, y: (a.y + b.y) / 2 - r.top };
+      const s0 = { x: st.c.x - r.left, y: st.c.y - r.top };
+      // keep the graph point under the fingers' midpoint fixed
+      const gx = (s0.x - st.cam.x) / st.cam.k,
+        gy = (s0.y - st.cam.y) / st.cam.k;
+      setCam({ k, x: c.x - gx * k, y: c.y - gy * k });
+    };
+    const up = (e: PointerEvent) => {
+      if (!ptrs.delete(e.pointerId)) return;
+      if (ptrs.size < 2) start = null;
+    };
+    el.addEventListener('pointerdown', down, { capture: true });
+    window.addEventListener('pointermove', move, { capture: true, passive: false });
+    window.addEventListener('pointerup', up, { capture: true });
+    window.addEventListener('pointercancel', up, { capture: true });
+    return () => {
+      el.removeEventListener('pointerdown', down, { capture: true });
+      window.removeEventListener('pointermove', move, { capture: true });
+      window.removeEventListener('pointerup', up, { capture: true });
+      window.removeEventListener('pointercancel', up, { capture: true });
+    };
   }, []);
 
   const toGraph = (cx: number, cy: number) => {
