@@ -4,7 +4,8 @@ import { hasTableName, setSelection, tableName, tableTitle, updateGuests, useSto
 import { guestMatcher, useFilters, activeCount, clearFilters } from './filters';
 import { backupJson, catererCsv, fileBase, guestListCsv, layoutJson, mealSummary, planPng, planSvg, saveFile, seatingChartHtml, tablesCsv } from './exporters';
 import { lastName } from './util';
-import { Icon, TextField } from './ui';
+import { Dialog, Icon, TextField } from './ui';
+import { guestListPdf, PAPER_LABEL, seatingChartPdf, type GuestSort, type GuestWho, type Paper } from './pdf';
 import { SearchBox, FilterSheet } from './GuestPanel';
 import type { Analysis } from './scoring';
 
@@ -262,9 +263,28 @@ function ExportPanel() {
       </button>
     </section>
   );
+  const [pdf, setPdf] = useState<'chart' | 'guests' | null>(null);
+  const pdfItem = (k: 'chart' | 'guests', title: string, desc: string) => (
+    <section className="tcard" key={'pdf-' + k}>
+      <header>
+        <Icon name="file" />
+        <h3 style={{ fontSize: 19 }}>{title}</h3>
+        <span className="badge">PDF</span>
+      </header>
+      <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
+        {desc}
+      </p>
+      <button className="btn primary" onClick={() => setPdf(k)}>
+        <Icon name="download" size="sm" /> Download PDF…
+      </button>
+    </section>
+  );
   return (
     <div className="cards">
-      {item('chart', 'file', 'Seating chart', 'One print-ready page: the floor plan, every table with its guests and meals, the guest list A–Z and meal counts. Open it and print or save as PDF.', () => saveFile(`${base}-seating-chart.html`, seatingChartHtml(project), 'text/html'))}
+      {pdfItem('chart', 'Seating chart & venue layout', 'The floor plan on its own page, sized to fill it, then every table with its Chinese and English name, number and guests by seat with meals. Ready to print or send to the venue.')}
+      {pdfItem('guests', 'Guest list', 'A formatted table of guests A–Z (or by table): table name, seat, meal, dietary needs and side, with page numbers and a repeated header on every page.')}
+      <PdfDialog kind={pdf} onClose={() => setPdf(null)} />
+      {item('chart', 'file', 'Seating chart', 'A single web page with the floor plan, tables, guest list A–Z and meal counts, to open in a browser.', () => saveFile(`${base}-seating-chart.html`, seatingChartHtml(project), 'text/html'))}
       {item('png', 'image', 'Floor plan image', 'High-resolution PNG of the room with table names and guest first names.', async () => saveFile(`${base}-floor-plan.png`, await planPng(project), 'image/png'))}
       {item('svg', 'image', 'Floor plan (vector)', 'SVG for a designer or stationer to restyle at any size.', () => saveFile(`${base}-floor-plan.svg`, planSvg(project), 'image/svg+xml'))}
       {item('guests', 'list', 'Guest list with tables & meals', 'CSV, A–Z by last name: table, seat, meal, dietary notes, RSVP, groups. Ready for escort cards or mail merge.', () => saveFile(`${base}-guests.csv`, guestListCsv(project), 'text/csv'))}
@@ -273,5 +293,83 @@ function ExportPanel() {
       {item('backup', 'download', 'Full backup', 'Everything: guests, ties, room and seating. Keep a copy somewhere safe.', () => saveFile(`${base}-backup.json`, backupJson(project), 'application/json'))}
       {item('layout', 'layout', 'Room layout only', 'Walls, areas and tables without guests, to reuse or share with the venue.', () => saveFile(`${base}-layout.json`, layoutJson(project), 'application/json'))}
     </div>
+  );
+}
+
+/** Options for the PDF exports: paper size, and for the guest list who to include and the order. */
+function PdfDialog({ kind, onClose }: { kind: 'chart' | 'guests' | null; onClose: () => void }) {
+  const project = useStore((s) => s.project);
+  const [paper, setPaper] = useState<Paper>('letter');
+  const [names, setNames] = useState(true);
+  const [who, setWho] = useState<GuestWho>('attending');
+  const [sort, setSort] = useState<GuestSort>('name');
+  const [busy, setBusy] = useState(false);
+  const base = fileBase(project);
+  async function go() {
+    setBusy(true);
+    try {
+      if (kind === 'chart') await saveFile(`${base}-seating-chart.pdf`, await seatingChartPdf(project, paper, { names }), 'application/pdf');
+      else await saveFile(`${base}-guest-list.pdf`, await guestListPdf(project, paper, { who, sort }), 'application/pdf');
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  }
+  const counts = { attending: project.guests.filter((g) => g.rsvp === 'yes').length, invited: project.guests.filter((g) => g.rsvp !== 'no').length, all: project.guests.length };
+  return (
+    <Dialog
+      open={!!kind}
+      onClose={onClose}
+      title={kind === 'chart' ? 'Seating chart PDF' : 'Guest list PDF'}
+      footer={
+        <>
+          <button className="btn ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn primary" disabled={busy} onClick={() => void go()}>
+            {busy ? <span className="spinner" /> : <Icon name="download" size="sm" />} {busy ? 'Making PDF…' : 'Download PDF'}
+          </button>
+        </>
+      }
+    >
+      <label className="field">
+        <span>Paper</span>
+        <select className="input" value={paper} onChange={(e) => setPaper(e.target.value as Paper)}>
+          {(Object.keys(PAPER_LABEL) as Paper[]).map((k) => (
+            <option key={k} value={k}>
+              {PAPER_LABEL[k]}
+            </option>
+          ))}
+        </select>
+      </label>
+      {kind === 'chart' ? (
+        <>
+          <label className="check">
+            <input type="checkbox" checked={names} onChange={(e) => setNames(e.target.checked)} /> Show guests' first names beside their chairs on the floor plan
+          </label>
+          <p className="muted small" style={{ margin: 0 }}>
+            Page 1 is the venue layout, turned to fill the page. The tables follow, two columns per page, each with its guests by seat number. For a wall-size plan, choose Tabloid.
+          </p>
+        </>
+      ) : (
+        <>
+          <label className="field">
+            <span>Who to include</span>
+            <select className="input" value={who} onChange={(e) => setWho(e.target.value as GuestWho)}>
+              <option value="attending">Attending ({counts.attending})</option>
+              <option value="invited">Attending and pending ({counts.invited})</option>
+              <option value="all">Everyone invited, with RSVP ({counts.all})</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Order</span>
+            <select className="input" value={sort} onChange={(e) => setSort(e.target.value as GuestSort)}>
+              <option value="name">A–Z by last name (for escort cards and check-in)</option>
+              <option value="table">By table and seat (for the venue)</option>
+            </select>
+          </label>
+        </>
+      )}
+    </Dialog>
   );
 }

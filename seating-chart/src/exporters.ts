@@ -1,5 +1,6 @@
 import type { Guest, Project, Table } from './types';
 import { CHAIR_R, projectBounds, seatLocal, tableFootprint, toWorld } from './geometry';
+export { tableFootprint };
 import { hasTableName, tableName, tableTitle, toast } from './store';
 import { getDownloads } from './sync';
 import { download, firstName, initials, lastName, slug } from './util';
@@ -30,14 +31,14 @@ const csvCell = (v: unknown) => {
 };
 export const toCsv = (rows: unknown[][]) => '﻿' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n');
 
-function seatIndex(p: Project) {
+export function seatIndex(p: Project) {
   const m = new Map<string, { t: Table; seat: number }>();
   for (const t of p.tables) (p.seating[t.id] ?? []).forEach((g, i) => g && m.set(g, { t, seat: i + 1 }));
   return m;
 }
-const byLast = (a: Guest, b: Guest) => (lastName(a.name) || a.name).localeCompare(lastName(b.name) || b.name) || a.name.localeCompare(b.name);
-const sideLabel = (p: Project, g: Guest) => (g.side === 'partner1' ? p.settings.partner1 : g.side === 'partner2' ? p.settings.partner2 : g.side === 'both' ? 'Both' : '');
-const rsvpLabel = (g: Guest) => (g.rsvp === 'yes' ? 'Attending' : g.rsvp === 'no' ? 'Declined' : 'Pending');
+export const byLast = (a: Guest, b: Guest) => (lastName(a.name) || a.name).localeCompare(lastName(b.name) || b.name) || a.name.localeCompare(b.name);
+export const sideLabel = (p: Project, g: Guest) => (g.side === 'partner1' ? p.settings.partner1 : g.side === 'partner2' ? p.settings.partner2 : g.side === 'both' ? 'Both' : '');
+export const rsvpLabel = (g: Guest) => (g.rsvp === 'yes' ? 'Attending' : g.rsvp === 'no' ? 'Declined' : 'Pending');
 
 export function guestListCsv(p: Project) {
   const idx = seatIndex(p);
@@ -51,7 +52,7 @@ export function guestListCsv(p: Project) {
   return toCsv(rows);
 }
 
-const sortTables = (ts: Table[]) => [...ts].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
+export const sortTables = (ts: Table[]) => [...ts].sort((a, b) => a.label.localeCompare(b.label, undefined, { numeric: true }));
 
 export function tablesCsv(p: Project) {
   const byId = new Map(p.guests.map((g) => [g.id, g]));
@@ -103,8 +104,8 @@ const C = {
   door: '#6b7a74',
 };
 
-export function planSvg(p: Project, opts: { names?: boolean; scale?: number } = {}) {
-  const b = projectBounds(p);
+export function planSvg(p: Project, opts: { names?: boolean; scale?: number; title?: boolean; bounds?: { x0: number; y0: number; x1: number; y1: number } } = {}) {
+  const b = opts.bounds ?? projectBounds(p);
   const pad = 4;
   const x0 = b.x0 - pad,
     y0 = b.y0 - pad - 3,
@@ -114,7 +115,7 @@ export function planSvg(p: Project, opts: { names?: boolean; scale?: number } = 
   const byId = new Map(p.guests.map((g) => [g.id, g]));
   const parts: string[] = [];
   parts.push(`<rect x="${x0}" y="${y0}" width="${w}" height="${h}" fill="${C.bg}"/>`);
-  parts.push(`<text x="${x0 + 1.5}" y="${y0 + 2.4}" font-family="Georgia, serif" font-size="2" fill="${C.ink}">${esc(p.name)}</text>`);
+  if (opts.title !== false) parts.push(`<text x="${x0 + 1.5}" y="${y0 + 2.4}" font-family="Georgia, serif" font-size="2" fill="${C.ink}">${esc(p.name)}</text>`);
   for (const e of p.elements) {
     if (e.kind === 'zone') {
       parts.push(`<g transform="translate(${e.x} ${e.y}) rotate(${e.rotation})"><rect x="${-e.w / 2}" y="${-e.h / 2}" width="${e.w}" height="${e.h}" rx="0.4" fill="${e.zone === 'dance' ? C.dance : C.zone}" stroke="${C.zoneLine}" stroke-width="0.08" stroke-dasharray="0.4 0.3"/><text text-anchor="middle" dominant-baseline="central" font-family="Helvetica, Arial, sans-serif" font-size="0.9" fill="${C.muted}" transform="rotate(${-e.rotation})">${esc(e.label)}</text></g>`);
@@ -135,12 +136,34 @@ export function planSvg(p: Project, opts: { names?: boolean; scale?: number } = 
           ? `<ellipse rx="${t.w / 2}" ry="${t.h / 2}"`
           : `<rect x="${-t.w / 2}" y="${-t.h / 2}" width="${t.w}" height="${t.h}" rx="0.15"`;
     parts.push(`<g transform="translate(${t.x} ${t.y}) rotate(${t.rotation})">${shape} fill="${C.table}" stroke="${C.tableLine}" stroke-width="0.09"/></g>`);
-    const { main: nm, sub: en } = tableTitle(t);
-    const sub = hasTableName(t) ? t.label : '';
-    const y0 = t.y + (en ? -0.5 : sub ? -0.1 : 0.35);
-    parts.push(`<text x="${t.x}" y="${y0}" text-anchor="middle" font-family="Georgia, serif" font-size="1" fill="${C.ink}">${esc(nm)}</text>`);
-    if (en) parts.push(`<text x="${t.x}" y="${y0 + 0.8}" text-anchor="middle" font-family="Georgia, serif" font-style="italic" font-size="0.6" fill="${C.ink}">${esc(en)}</text>`);
-    if (sub) parts.push(`<text x="${t.x}" y="${(en ? y0 + 0.8 : t.y) + 0.85}" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="0.55" letter-spacing="0.05" fill="${C.muted}">${esc(sub.toUpperCase())}</text>`);
+    // title: Chinese flower name, English beneath, then the table number; along the long side of
+    // narrow tables, and shrunk so it stays inside the table
+    const { main: nm, sub: en0 } = tableTitle(t);
+    const en = en0.replace(/\(.*?\)/g, '').trim();
+    const num = hasTableName(t) ? t.label.toUpperCase() : '';
+    const round = t.shape === 'round' || t.shape === 'square';
+    const along = !round && t.w / Math.max(0.1, t.h) > 1.6;
+    const len = (along || round ? t.w : t.w) * 0.88,
+      depth = (round ? t.w : t.h) * 0.9;
+    const em = (str: string) => [...str].reduce((a, ch) => a + (/[\u3000-\u9fff\uff00-\uffef]/.test(ch) ? 1 : 0.56), 0);
+    const fMain = Math.min(1.1, len / Math.max(1, em(nm)), depth * 0.45);
+    const fEn = en ? Math.min(0.62, len / Math.max(1, em(en)), depth * 0.22) : 0;
+    const fNum = num ? Math.min(0.42, depth * 0.16) : 0;
+    const total = fMain * 1.05 + (fEn ? fEn * 1.2 : 0) + (fNum ? fNum * 1.4 : 0);
+    let la = ((t.rotation % 180) + 180) % 180;
+    if (la > 90) la -= 180;
+    const rot = along ? la : 0;
+    let y = -total / 2 + fMain * 0.85;
+    const lines = [`<text y="${y.toFixed(3)}" text-anchor="middle" font-family="Georgia, 'Songti TC', 'Noto Serif TC', serif" font-size="${fMain.toFixed(3)}" fill="${C.ink}">${esc(nm)}</text>`];
+    if (fEn) {
+      y += fMain * 0.25 + fEn * 1.05;
+      lines.push(`<text y="${y.toFixed(3)}" text-anchor="middle" font-family="Georgia, serif" font-style="italic" font-size="${fEn.toFixed(3)}" fill="${C.ink}">${esc(en)}</text>`);
+    }
+    if (fNum) {
+      y += (fEn ? fEn * 0.3 : fMain * 0.25) + fNum * 1.3;
+      lines.push(`<text y="${y.toFixed(3)}" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="${fNum.toFixed(3)}" letter-spacing="0.04" fill="${C.muted}">${esc(num)}</text>`);
+    }
+    parts.push(`<g transform="translate(${t.x} ${t.y}) rotate(${rot})">${lines.join('')}</g>`);
     const seats = p.seating[t.id] ?? [];
     seatLocal(t).forEach((lp, i) => {
       const wp = toWorld(t, lp);
